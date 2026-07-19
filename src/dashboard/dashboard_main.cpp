@@ -168,6 +168,7 @@ using ErrorHandler = int (*)(Display*, XErrorEvent*);
 inline constexpr Bool False = 0;
 inline constexpr Bool True = 1;
 inline constexpr int Success = 0;
+inline constexpr int InputOutput = 1;
 inline constexpr int IsViewable = 2;
 inline constexpr int ZPixmap = 2;
 inline constexpr unsigned long AllPlanes = ~0UL;
@@ -854,52 +855,41 @@ public:
         }
 
         const x11::Drawable drawable = pixmap_ != 0UL ? pixmap_ : target_;
-        g_x_error_count.store(0U);
-        x11::XImage* image = api_.get_image(display_, drawable, 0, 0, source_width_, source_height_,
-                                            x11::AllPlanes, x11::ZPixmap);
-        api_.sync(display_, x11::False);
-        if (image == nullptr || g_x_error_count.load() != 0U) {
-            if (image != nullptr) {
-                api_.destroy_image(image);
-            }
-            if (pixmap_ != 0UL) {
-                std::cout << "dashboard: composite pixmap capture failed; retrying direct window capture\n";
-                release_pixmap();
-                image = api_.get_image(display_, target_, 0, 0, source_width_, source_height_,
-                                       x11::AllPlanes, x11::ZPixmap);
-            }
+        std::optional<CapturedFrame> frame = capture_drawable(
+            drawable, source_width_, source_height_, maximum_width, maximum_height);
+        if (!frame.has_value() && pixmap_ != 0UL) {
+            std::cout << "dashboard: composite pixmap capture failed; retrying direct window capture\n";
+            release_pixmap();
+            force_direct_capture_ = true;
+            frame = capture_drawable(target_, source_width_, source_height_, maximum_width, maximum_height);
         }
-        if (image == nullptr) {
+        if (!frame.has_value()) {
             return std::nullopt;
         }
 
-        const double scale = std::min({1.0,
-                                       static_cast<double>(maximum_width) / static_cast<double>(source_width_),
-                                       static_cast<double>(maximum_height) / static_cast<double>(source_height_)});
-        CapturedFrame frame;
-        frame.source_width = source_width_;
-        frame.source_height = source_height_;
-        frame.width = std::max(1U, static_cast<std::uint32_t>(std::floor(static_cast<double>(source_width_) * scale)));
-        frame.height = std::max(1U, static_cast<std::uint32_t>(std::floor(static_cast<double>(source_height_) * scale)));
-        const std::size_t pixel_count = static_cast<std::size_t>(frame.width) * static_cast<std::size_t>(frame.height);
-        frame.rgba.resize(pixel_count * 4U);
-
-        for (std::uint32_t y = 0; y < frame.height; ++y) {
-            const int source_y = static_cast<int>((static_cast<std::uint64_t>(y) * source_height_) / frame.height);
-            for (std::uint32_t x = 0; x < frame.width; ++x) {
-                const int source_x = static_cast<int>((static_cast<std::uint64_t>(x) * source_width_) / frame.width);
-                const unsigned long pixel = read_pixel(image, source_x, source_y);
-                const std::size_t offset = (static_cast<std::size_t>(y) * frame.width + x) * 4U;
-                frame.rgba[offset] = channel_from_pixel(pixel, image->red_mask);
-                frame.rgba[offset + 1U] = channel_from_pixel(pixel, image->green_mask);
-                frame.rgba[offset + 2U] = channel_from_pixel(pixel, image->blue_mask);
-                frame.rgba[offset + 3U] = 255U;
+        if (is_effectively_blank(*frame) && pixmap_ != 0UL) {
+            release_pixmap();
+            force_direct_capture_ = true;
+            std::optional<CapturedFrame> direct = capture_drawable(
+                target_, source_width_, source_height_, maximum_width, maximum_height);
+            if (direct.has_value() && !is_effectively_blank(*direct)) {
+                blank_frame_count_ = 0U;
+                std::cout << "dashboard: XComposite returned black; using direct X11 window capture\n";
+                return direct;
+            }
+            if (direct.has_value()) {
+                frame = std::move(direct);
             }
         }
-        api_.destroy_image(image);
-        if (is_effectively_blank(frame)) {
+
+        if (is_effectively_blank(*frame)) {
             ++blank_frame_count_;
             if (blank_frame_count_ == 1U || blank_frame_count_ % 100U == 0U) {
+                std::optional<CapturedFrame> child = probe_child_render_surface(maximum_width, maximum_height);
+                if (child.has_value()) {
+                    blank_frame_count_ = 0U;
+                    return child;
+                }
                 std::cerr << "dashboard: discarded blank capture frame from window 0x"
                           << std::hex << target_ << std::dec
                           << " (count=" << blank_frame_count_ << ")\n";
@@ -989,6 +979,138 @@ private:
         x11::Window window{};
         unsigned int depth{};
     };
+
+    struct RenderSurfaceCandidate {
+        x11::Window window{};
+        std::uint32_t width{};
+        std::uint32_t height{};
+        std::uint64_t area{};
+    };
+
+    std::optional<CapturedFrame> capture_drawable(
+        x11::Drawable drawable,
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t maximum_width,
+        std::uint32_t maximum_height) const {
+        if (drawable == 0UL || width == 0U || height == 0U) {
+            return std::nullopt;
+        }
+        g_x_error_count.store(0U);
+        x11::XImage* image = api_.get_image(
+            display_, drawable, 0, 0, width, height, x11::AllPlanes, x11::ZPixmap);
+        api_.sync(display_, x11::False);
+        if (image == nullptr || g_x_error_count.load() != 0U) {
+            if (image != nullptr) {
+                api_.destroy_image(image);
+            }
+            return std::nullopt;
+        }
+
+        const double scale = std::min({1.0,
+                                       static_cast<double>(maximum_width) / static_cast<double>(width),
+                                       static_cast<double>(maximum_height) / static_cast<double>(height)});
+        CapturedFrame frame;
+        frame.source_width = width;
+        frame.source_height = height;
+        frame.width = std::max(
+            1U, static_cast<std::uint32_t>(std::floor(static_cast<double>(width) * scale)));
+        frame.height = std::max(
+            1U, static_cast<std::uint32_t>(std::floor(static_cast<double>(height) * scale)));
+        const std::size_t pixel_count = static_cast<std::size_t>(frame.width) * frame.height;
+        frame.rgba.resize(pixel_count * 4U);
+
+        for (std::uint32_t y = 0; y < frame.height; ++y) {
+            const int source_y = static_cast<int>((static_cast<std::uint64_t>(y) * height) / frame.height);
+            for (std::uint32_t x = 0; x < frame.width; ++x) {
+                const int source_x = static_cast<int>((static_cast<std::uint64_t>(x) * width) / frame.width);
+                const unsigned long pixel = read_pixel(image, source_x, source_y);
+                const std::size_t offset = (static_cast<std::size_t>(y) * frame.width + x) * 4U;
+                frame.rgba[offset] = channel_from_pixel(pixel, image->red_mask);
+                frame.rgba[offset + 1U] = channel_from_pixel(pixel, image->green_mask);
+                frame.rgba[offset + 2U] = channel_from_pixel(pixel, image->blue_mask);
+                frame.rgba[offset + 3U] = 255U;
+            }
+        }
+        api_.destroy_image(image);
+        return frame;
+    }
+
+    std::optional<CapturedFrame> probe_child_render_surface(
+        std::uint32_t maximum_width,
+        std::uint32_t maximum_height) {
+        std::vector<PendingWindow> pending{{target_, 0U}};
+        std::vector<RenderSurfaceCandidate> candidates;
+        std::size_t cursor = 0U;
+        std::size_t visited = 0U;
+        const std::uint64_t parent_area = static_cast<std::uint64_t>(source_width_) * source_height_;
+        const std::uint64_t minimum_area = std::max<std::uint64_t>(4096U, parent_area / 20U);
+
+        while (cursor < pending.size() && visited < 1024U) {
+            const PendingWindow parent = pending[cursor++];
+            x11::Window returned_root = 0UL;
+            x11::Window returned_parent = 0UL;
+            x11::Window* children = nullptr;
+            unsigned int child_count = 0U;
+            if (api_.query_tree(
+                    display_, parent.window, &returned_root, &returned_parent, &children, &child_count) == 0) {
+                continue;
+            }
+            for (unsigned int index = 0U; index < child_count && visited < 1024U; ++index, ++visited) {
+                const x11::Window child = children[index];
+                x11::XWindowAttributes attributes{};
+                if (api_.get_window_attributes(display_, child, &attributes) == 0) {
+                    continue;
+                }
+                if (parent.depth < 6U) {
+                    pending.push_back(PendingWindow{child, parent.depth + 1U});
+                }
+                if (attributes.c_class != x11::InputOutput || attributes.map_state != x11::IsViewable ||
+                    attributes.width <= 0 || attributes.height <= 0) {
+                    continue;
+                }
+                const std::uint64_t area = static_cast<std::uint64_t>(attributes.width) *
+                                           static_cast<std::uint64_t>(attributes.height);
+                if (area < minimum_area) {
+                    continue;
+                }
+                candidates.push_back(RenderSurfaceCandidate{
+                    child,
+                    static_cast<std::uint32_t>(attributes.width),
+                    static_cast<std::uint32_t>(attributes.height),
+                    area,
+                });
+            }
+            if (children != nullptr) {
+                api_.free_memory(children);
+            }
+        }
+
+        std::sort(candidates.begin(), candidates.end(), [](const auto& left, const auto& right) {
+            return left.area > right.area;
+        });
+        if (candidates.size() > 32U) {
+            candidates.resize(32U);
+        }
+        for (const RenderSurfaceCandidate& candidate : candidates) {
+            std::optional<CapturedFrame> frame = capture_drawable(
+                candidate.window, candidate.width, candidate.height, maximum_width, maximum_height);
+            if (!frame.has_value() || is_effectively_blank(*frame)) {
+                continue;
+            }
+            release_pixmap();
+            target_ = candidate.window;
+            source_width_ = candidate.width;
+            source_height_ = candidate.height;
+            force_direct_capture_ = true;
+            std::cout << "dashboard: selected Wine child render surface 0x"
+                      << std::hex << target_ << std::dec
+                      << " size=" << source_width_ << 'x' << source_height_
+                      << " through direct X11 capture\n";
+            return frame;
+        }
+        return std::nullopt;
+    }
 
     [[nodiscard]] std::string window_title(x11::Window window) const {
         if (net_wm_name_ != 0UL) {
@@ -1102,7 +1224,7 @@ private:
 
     void setup_composite_pixmap() {
         release_pixmap();
-        if (!composite_available_ || target_ == 0UL) {
+        if (!composite_available_ || target_ == 0UL || force_direct_capture_) {
             return;
         }
         g_x_error_count.store(0U);
@@ -1137,6 +1259,7 @@ private:
             release_pixmap();
         }
         target_ = 0UL;
+        force_direct_capture_ = false;
         source_width_ = 0U;
         source_height_ = 0U;
         title_.clear();
@@ -1179,6 +1302,7 @@ private:
     x11::Atom utf8_string_{};
     bool composite_available_{false};
     bool redirected_{false};
+    bool force_direct_capture_{false};
     x11::Window target_{};
     x11::Pixmap pixmap_{};
     std::uint32_t source_width_{};
@@ -1790,6 +1914,8 @@ int run_dashboard(const Arguments& arguments) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    std::cout << std::unitbuf;
+    std::cerr << std::unitbuf;
     std::signal(SIGINT, handle_signal);
     std::signal(SIGTERM, handle_signal);
     std::signal(SIGHUP, SIG_IGN);
