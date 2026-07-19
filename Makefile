@@ -11,6 +11,7 @@ NATIVE_OBJ_DIR := $(BUILD_DIR)/native
 WINDOWS_OBJ_DIR := $(BUILD_DIR)/windows
 TEST_DIR := $(BUILD_DIR)/tests
 OVERLAY_ROOT := $(BUILD_DIR)/overlay
+DIST_DIR := dist
 INTEGRATION_ROOT := $(BUILD_DIR)/integration/Standable Full Body Estimation
 NATIVE_SO := $(NATIVE_OBJ_DIR)/driver_standable.so
 WINDOWS_HELPER := $(WINDOWS_OBJ_DIR)/standable_bridge_host.exe
@@ -43,7 +44,7 @@ WINDOWS_SOURCES := \
 WINDOWS_OBJECTS := $(patsubst src/windows/%.cpp,$(WINDOWS_OBJ_DIR)/%.obj,$(WINDOWS_SOURCES))
 STEAM_API_OBJECT := $(WINDOWS_OBJ_DIR)/steam_api_bridge.obj
 
-.PHONY: all native windows test overlay verify integration package package-source release clean
+.PHONY: all native windows test overlay verify integration package package-source release dist clean
 
 all: overlay test verify
 
@@ -126,10 +127,16 @@ package: overlay verify
 
 package-source:
 	@rm -f '$(SOURCE_ZIP)'
-	@zip -q -r '$(SOURCE_ZIP)' .github .gitignore Makefile VERSION README.md README-LINUX.md install.sh include src tests scripts docs packaging
+	@zip -q -r '$(SOURCE_ZIP)' .github .gitattributes .gitignore Makefile VERSION README.md README-LINUX.md install.sh include src tests scripts docs packaging
 	@echo 'Created $(SOURCE_ZIP)'
 
 release: package package-source
+
+dist: release
+	@install -d '$(DIST_DIR)'
+	@install -m 0644 '$(OVERLAY_ZIP)' '$(DIST_DIR)/Standable-Linux-Bridge-Overlay.zip'
+	@(cd '$(DIST_DIR)' && sha256sum Standable-Linux-Bridge-Overlay.zip > SHA256SUMS)
+	@echo 'Updated $(DIST_DIR) fallback distribution'
 
 clean:
 	rm -rf '$(BUILD_DIR)'

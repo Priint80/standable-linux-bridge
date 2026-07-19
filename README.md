@@ -22,7 +22,7 @@ cd standable-linux-bridge
 ./install.sh
 ```
 
-The installer finds Standable across your Steam library folders, downloads and verifies the latest release, installs only bridge-owned files, keeps the original DLL and UI untouched, and registers the driver with SteamVR.
+The installer finds Standable across your Steam library folders, verifies the bundled distribution (or downloads the latest release), installs only bridge-owned files, keeps the original DLL and UI untouched, and registers the driver with SteamVR.
 
 If auto-detection does not find the app:
 
@@ -30,7 +30,7 @@ If auto-detection does not find the app:
 ./install.sh --standable-root "/path/to/Standable Full Body Estimation"
 ```
 
-This repository is currently private, so release downloads require either an authenticated GitHub CLI (`gh auth login`) or a `GITHUB_TOKEN`. If the repository becomes public, only the listed command-line dependencies are needed.
+This repository is currently private. Cloning it through your normal GitHub credentials is enough for the first install because the checkout contains a verified fallback distribution. Later online updates require either an authenticated GitHub CLI (`gh auth login`) or a `GITHUB_TOKEN`. If the repository becomes public, only the listed command-line dependencies are needed.
 
 ## Update
 
@@ -83,6 +83,7 @@ Build requirements are `g++`, GNU `make`, `binutils`, `zip`, and Zig. GCC builds
 ```bash
 make ZIG=/path/to/zig
 make release ZIG=/path/to/zig
+make dist ZIG=/path/to/zig
 ```
 
 Release products:

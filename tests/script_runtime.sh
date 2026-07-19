@@ -11,6 +11,9 @@ steamvr_root="$steam_root/steamapps/common/SteamVR"
 runner="$temporary/Proton Test/proton"
 log="$temporary/runner.log"
 registry_log="$temporary/registry.log"
+installer_tree="$temporary/installer"
+remote_installer_tree="$temporary/remote-installer"
+curl_log="$temporary/curl.log"
 
 mkdir -p "$driver_root" "$steamvr_root/bin" "$steam_root/legacycompat" "$(dirname -- "$runner")"
 cp -a "$overlay/." "$driver_root/"
@@ -45,14 +48,32 @@ grep -q 'standable_bridge_host.exe><--session><99112233><--native-port><42470><-
 grep -q 'Standable.exe' "$log"
 
 export STANDABLE_TEST_LOG="$registry_log"
-bash install.sh \
-    --overlay-dir "$overlay" \
-    --standable-root "$driver_root"
+mkdir -p "$installer_tree/dist"
+cp install.sh "$installer_tree/install.sh"
+(cd -- "$overlay" && zip -q -r "$installer_tree/dist/Standable-Linux-Bridge-Overlay.zip" .)
+(cd -- "$installer_tree/dist" && sha256sum Standable-Linux-Bridge-Overlay.zip > SHA256SUMS)
+bash "$installer_tree/install.sh" --standable-root "$driver_root"
+
+mkdir -p "$remote_installer_tree/bin"
+cp install.sh "$remote_installer_tree/install.sh"
+cp tests/fake-curl.sh "$remote_installer_tree/bin/curl"
+chmod 0755 "$remote_installer_tree/bin/curl"
+STANDABLE_TEST_DIST="$installer_tree/dist" \
+STANDABLE_TEST_CURL_LOG="$curl_log" \
+PATH="$remote_installer_tree/bin:$PATH" \
+    bash "$remote_installer_tree/install.sh" \
+        --standable-root "$driver_root" \
+        --no-register
+grep -q '/releases/latest/download/Standable-Linux-Bridge-Overlay.zip' "$curl_log"
+grep -q '/main/dist/Standable-Linux-Bridge-Overlay.zip' "$curl_log"
+
 bash "$driver_root/scripts/update.sh" \
     --overlay-dir "$overlay" \
     --no-register
 bash "$driver_root/scripts/uninstall.sh" >/dev/null
 grep -q "args=<adddriver><$driver_root>" "$registry_log"
 grep -q "args=<removedriver><$driver_root>" "$registry_log"
+backup_count="$(find "$XDG_STATE_HOME/standable-linux-bridge/backups" -mindepth 1 -maxdepth 1 -type d | wc -l)"
+((backup_count == 3))
 
-echo "PASS: Proton selection, prefix sharing, Steam client discovery, UI launch, install, update, and registration"
+echo "PASS: Proton selection, prefix sharing, Steam client discovery, UI launch, bundled/repository install, update, and registration"

@@ -44,7 +44,7 @@ The native endpoint marks all relayed trackers disconnected if the helper stops 
 
 ## Installation and updates
 
-The top-level installer auto-detects Steam library folders, downloads the latest GitHub release, verifies `SHA256SUMS`, rejects unsafe archive paths, and copies only an explicit allow-list of bridge-owned files. Existing bridge files are backed up before atomic replacement. It never overwrites or packages the proprietary Standable DLL, UI, resources, settings, or saved poses.
+The top-level installer auto-detects Steam library folders, selects the bundled distribution or downloads the latest GitHub release, verifies `SHA256SUMS`, rejects unsafe archive paths, and copies only an explicit allow-list of bridge-owned files. If a release is unavailable, it can retrieve the same verified fallback from `dist/` in the repository. Existing bridge files are backed up before atomic replacement. It never overwrites or packages the proprietary Standable DLL, UI, resources, settings, or saved poses.
 
 The installed `scripts/update.sh` reuses the same installer engine. GitHub Actions builds and tests every push; a versioned push creates immutable overlay, source, and checksum release assets.
 

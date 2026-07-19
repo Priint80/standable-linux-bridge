@@ -6,6 +6,7 @@ standable_root="${STANDABLE_ROOT:-}"
 overlay_dir=""
 update_mode=0
 register_driver=1
+installer_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
 usage() {
     cat <<'EOF'
@@ -159,7 +160,7 @@ PY
         --output "$output" "$asset_url"
 }
 
-download_asset() {
+download_release_asset() {
     local name="$1" output="$2"
     if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
         gh release download --repo "$repo" --pattern "$name" --output "$output" --clobber
@@ -167,6 +168,25 @@ download_asset() {
         download_private_asset "$name" "$output"
     else
         download_public_asset "$name" "$output"
+    fi
+}
+
+download_repository_asset() {
+    local name="$1" output="$2"
+    if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+        gh api \
+            -H "Accept: application/vnd.github.raw+json" \
+            "repos/$repo/contents/dist/$name?ref=main" >"$output"
+    elif [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        curl --fail --location --silent --show-error \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.raw+json" \
+            --output "$output" \
+            "https://api.github.com/repos/$repo/contents/dist/$name?ref=main"
+    else
+        curl --fail --location --silent --show-error \
+            --output "$output" \
+            "https://raw.githubusercontent.com/$repo/main/dist/$name"
     fi
 }
 
@@ -183,9 +203,22 @@ else
     temporary="$(mktemp -d "${TMPDIR:-/tmp}/standable-linux-bridge.XXXXXX")"
     archive="$temporary/Standable-Linux-Bridge-Overlay.zip"
     checksums="$temporary/SHA256SUMS"
-    echo "Downloading the latest bridge release from $repo"
-    download_asset "Standable-Linux-Bridge-Overlay.zip" "$archive"
-    download_asset "SHA256SUMS" "$checksums"
+    if [[ -f "$installer_root/dist/Standable-Linux-Bridge-Overlay.zip" && \
+          -f "$installer_root/dist/SHA256SUMS" ]]; then
+        echo "Using the verified bridge distribution bundled with this checkout"
+        install -m 0644 "$installer_root/dist/Standable-Linux-Bridge-Overlay.zip" "$archive"
+        install -m 0644 "$installer_root/dist/SHA256SUMS" "$checksums"
+    else
+        echo "Downloading the latest bridge release from $repo"
+        if download_release_asset "Standable-Linux-Bridge-Overlay.zip" "$archive" && \
+           download_release_asset "SHA256SUMS" "$checksums"; then
+            echo "Downloaded the latest GitHub release"
+        else
+            echo "Latest release unavailable; using the repository distribution"
+            download_repository_asset "Standable-Linux-Bridge-Overlay.zip" "$archive"
+            download_repository_asset "SHA256SUMS" "$checksums"
+        fi
+    fi
     expected="$(awk '$2 == "Standable-Linux-Bridge-Overlay.zip" {print $1; exit}' "$checksums")"
     [[ "$expected" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "Release checksum is missing or invalid" >&2; exit 6; }
     actual="$(sha256sum "$archive" | awk '{print $1}')"
@@ -223,7 +256,7 @@ version="$(tr -d '\r\n' <"$overlay_dir/VERSION")"
 }
 
 backup_root="${XDG_STATE_HOME:-$HOME/.local/state}/standable-linux-bridge/backups"
-backup="$backup_root/$(date -u +%Y%m%dT%H%M%SZ)-before-$version"
+backup="$backup_root/$(date -u +%Y%m%dT%H%M%S.%NZ)-before-$version"
 mkdir -p "$backup"
 
 install_atomic() {

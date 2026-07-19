@@ -39,3 +39,9 @@ jobs:
             build/Standable-Linux-Bridge-Overlay.zip
             build/Standable-Linux-Bridge-Source-v*.zip
           if-no-files-found: error
+
+      - name: Verify repository fallback distribution
+        run: |
+          cd dist
+          sha256sum --check SHA256SUMS
+          unzip -tq Standable-Linux-Bridge-Overlay.zip

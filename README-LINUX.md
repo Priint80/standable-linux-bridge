@@ -1,4 +1,4 @@
-# Standable Full Body Estimation — Linux Bridge 1.1.0
+# Standable Full Body Estimation — Linux Bridge
 
 This overlay adds a native Linux SteamVR driver while keeping Standable 3.0.3's original Windows provider and UI as the tracker solver. The original DLL still performs authentication, calibration, pose estimation, tracker creation, settings, and UI communication.
 
