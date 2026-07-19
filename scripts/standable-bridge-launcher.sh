@@ -106,16 +106,13 @@ if [[ "${STANDABLE_AUTOSTART_DASHBOARD:-1}" != "0" ]]; then
         dashboard_fps=20
     fi
 
-    dashboard_parent_pid="${STANDABLE_DASHBOARD_PARENT_PID:-}"
-    dashboard_parent_source="environment override"
-    if [[ ! "$dashboard_parent_pid" =~ ^[1-9][0-9]*$ ]]; then
-        dashboard_parent_pid="$(pgrep -o -x vrserver 2>/dev/null || true)"
-        dashboard_parent_source="vrserver"
-    fi
+    dashboard_parent_pid="${STANDABLE_DASHBOARD_PARENT_PID:-$$}"
+    dashboard_parent_source="bridge launcher"
+    [[ -n "${STANDABLE_DASHBOARD_PARENT_PID:-}" ]] && dashboard_parent_source="environment override"
     if [[ ! "$dashboard_parent_pid" =~ ^[1-9][0-9]*$ ]]; then
         dashboard_parent_pid="$$"
         dashboard_parent_source="bridge launcher fallback"
-        echo "WARNING: vrserver PID was not found; dashboard lifetime falls back to the bridge launcher"
+        echo "WARNING: invalid dashboard parent override; using the bridge launcher"
     fi
     echo "Dashboard lifetime parent: pid=$dashboard_parent_pid ($dashboard_parent_source)"
 

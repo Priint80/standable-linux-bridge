@@ -18,6 +18,8 @@ The companion discovers the Proton Standable window by its X11 title and class w
 
 The original Windows `Show in SteamVR Dashboard` preference is forced off by the Linux launcher. The native companion owns the sole functional Standable tab; leaving the Windows preference enabled creates a second blank dashboard entry under Proton.
 
+The dashboard companion follows the lifetime of the bridge launcher instead of a probed `vrserver` PID. SteamVR-wide quit requests stop it, while process-exit notifications for unrelated dashboard and helper applications are ignored.
+
 This design intentionally targets X11/XWayland. Standard Wayland capture is permission-mediated and does not offer a portable silent API for duplicating an arbitrary application window. Proton's default Linux window path is XWayland; compositor-specific screencopy or portal capture can be added later without changing the dashboard-facing OpenVR layer.
 
 The helper loads the unchanged `driver_standable.dll`, calls its exported `HmdDriverFactory`, and initializes `IServerTrackedDeviceProvider_004`. Its OpenVR compatibility host implements the interfaces requested by the original provider:

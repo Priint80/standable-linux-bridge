@@ -1693,8 +1693,16 @@ public:
                     }
                     break;
                 case vr::VREvent_Quit:
-                case vr::VREvent_ProcessQuit:
+                    std::cout << "dashboard: SteamVR requested companion shutdown\n";
                     g_running.store(false);
+                    break;
+                case vr::VREvent_ProcessQuit:
+                    std::cout << "dashboard: ignoring unrelated SteamVR process exit pid="
+                              << event.data.process.pid
+                              << " old_pid=" << event.data.process.oldPid
+                              << " forced=" << (event.data.process.bForced ? "true" : "false")
+                              << " connection_lost="
+                              << (event.data.process.bConnectionLost ? "true" : "false") << '\n';
                     break;
                 default:
                     break;
@@ -1907,7 +1915,14 @@ int run_dashboard(const Arguments& arguments) {
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
-    std::cout << "dashboard: companion shutting down\n";
+    if (!g_running.load()) {
+        std::cout << "dashboard: companion shutting down after SteamVR quit request or local signal\n";
+    } else if (!parent_is_alive(arguments.parent_pid)) {
+        std::cout << "dashboard: companion shutting down because lifetime parent pid="
+                  << arguments.parent_pid << " exited\n";
+    } else {
+        std::cout << "dashboard: companion shutting down\n";
+    }
     return 0;
 }
 
