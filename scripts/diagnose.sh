@@ -40,7 +40,7 @@ fi
 echo
 
 echo "Desktop session: XDG_SESSION_TYPE=${XDG_SESSION_TYPE:-<unset>} DISPLAY=${DISPLAY:-<unset>} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-<unset>}"
-for library in libX11.so.6 libXcomposite.so.1 libGL.so.1; do
+for library in libX11.so.6 libXcomposite.so.1 libXtst.so.6 libGL.so.1; do
     if ldconfig -p 2>/dev/null | grep -Fq "$library"; then
         echo "OK: dashboard capture/texture runtime: $library"
     else

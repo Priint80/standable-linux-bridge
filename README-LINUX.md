@@ -8,7 +8,7 @@ Requirements:
 
 - Linux x86-64 and native SteamVR
 - glibc 2.34 or newer with a current libstdc++ runtime
-- `libX11`, with `libXcomposite` recommended for reliable obscured-window capture
+- `libX11` and `libXtst`, with `libXcomposite` recommended for reliable obscured-window capture
 - Steam running and signed in to the account that owns Standable
 - Proton Experimental or Proton Hotfix installed through Steam
 - the original Standable 3.0.3 Steam installation
@@ -47,7 +47,7 @@ The overlay does not replace `driver_standable.dll`, `Standable.exe`, resources,
 
 ## SteamVR dashboard
 
-The bridge no longer depends on Standable's Windows dashboard renderer successfully crossing Proton. `standable_dashboard_overlay` is a native Linux OpenVR application: it creates a real SteamVR dashboard tab, captures the unchanged Standable window through X11/XComposite, uploads frames through a persistent OpenGL texture, and forwards controller pointer events to the window. If Proton's top-level XComposite pixmap is black, the companion automatically retries direct capture and probes Wine's child render surface. The original UI remains responsible for all controls and settings. The installer disables Standable's original Windows dashboard preference so SteamVR shows one functional Standable tab instead of a second blank entry.
+The bridge no longer depends on Standable's Windows dashboard renderer successfully crossing Proton. `standable_dashboard_overlay` is a native Linux OpenVR application: it creates a real SteamVR dashboard tab, captures the unchanged Standable window through X11/XComposite, uploads frames through a persistent OpenGL texture, and forwards controller pointer events through XTEST to the Wine window. If Proton's top-level XComposite pixmap is black, the companion automatically retries direct capture and probes Wine's child render surface. The original UI remains responsible for all controls and settings. The installer disables Standable's original Windows dashboard preference so SteamVR shows one functional Standable tab instead of a second blank entry.
 
 On a Wayland desktop, Proton normally presents the Windows UI through XWayland, which this companion can capture without a screen-sharing prompt. A native-Wayland Wine window cannot be duplicated silently through a portable Wayland API; if you explicitly enabled Wine's native Wayland driver, switch that app back to XWayland for this version.
 
@@ -57,7 +57,7 @@ To reapply the native dashboard configuration manually:
 ./scripts/enable-dashboard.sh
 ```
 
-Close and restart SteamVR after changing it. If the tab is missing, run `./scripts/diagnose.sh`; its report shows native `vrclient.so`, X11 capture libraries, the dashboard companion binary, and the dedicated dashboard log.
+Close and restart SteamVR after changing it. If the tab is missing or does not accept clicks, run `./scripts/diagnose.sh`; its report shows native `vrclient.so`, X11 capture/input libraries, the dashboard companion binary, and the dedicated dashboard log. A working input session logs `XTest=yes`, followed by `SteamVR pointer events received` when the controller ray reaches the panel and `pointer button=1` when the trigger is clicked.
 
 ## Update
 

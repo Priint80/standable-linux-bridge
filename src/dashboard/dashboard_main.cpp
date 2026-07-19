@@ -182,6 +182,8 @@ inline constexpr long PointerMotionMask = 1L << 6;
 inline constexpr unsigned int Button1Mask = 1U << 8;
 inline constexpr unsigned int Button2Mask = 1U << 9;
 inline constexpr unsigned int Button3Mask = 1U << 10;
+inline constexpr int RevertToParent = 2;
+inline constexpr Time CurrentTime = 0UL;
 inline constexpr int CompositeRedirectAutomatic = 0;
 
 }  // namespace x11
@@ -330,10 +332,15 @@ struct X11Api {
     using GetPixelFn = unsigned long (*)(x11::XImage*, int, int);
     using FreePixmapFn = int (*)(x11::Display*, x11::Pixmap);
     using SendEventFn = x11::Status (*)(x11::Display*, x11::Window, x11::Bool, long, x11::XEvent*);
+    using RaiseWindowFn = int (*)(x11::Display*, x11::Window);
+    using SetInputFocusFn = int (*)(x11::Display*, x11::Window, int, x11::Time);
     using FlushFn = int (*)(x11::Display*);
     using SyncFn = int (*)(x11::Display*, x11::Bool);
     using TranslateCoordinatesFn = x11::Bool (*)(x11::Display*, x11::Window, x11::Window, int, int, int*, int*, x11::Window*);
     using SetErrorHandlerFn = x11::ErrorHandler (*)(x11::ErrorHandler);
+    using TestQueryExtensionFn = x11::Bool (*)(x11::Display*, int*, int*, int*, int*);
+    using TestFakeMotionEventFn = int (*)(x11::Display*, int, int, int, unsigned long);
+    using TestFakeButtonEventFn = int (*)(x11::Display*, unsigned int, x11::Bool, unsigned long);
     using CompositeQueryExtensionFn = x11::Bool (*)(x11::Display*, int*, int*);
     using CompositeRedirectWindowFn = void (*)(x11::Display*, x11::Window, int);
     using CompositeUnredirectWindowFn = void (*)(x11::Display*, x11::Window, int);
@@ -361,6 +368,8 @@ struct X11Api {
         get_pixel = xlib.symbol<GetPixelFn>("XGetPixel");
         free_pixmap = xlib.symbol<FreePixmapFn>("XFreePixmap");
         send_event = xlib.symbol<SendEventFn>("XSendEvent");
+        raise_window = xlib.symbol<RaiseWindowFn>("XRaiseWindow");
+        set_input_focus = xlib.symbol<SetInputFocusFn>("XSetInputFocus");
         flush = xlib.symbol<FlushFn>("XFlush");
         sync = xlib.symbol<SyncFn>("XSync");
         translate_coordinates = xlib.symbol<TranslateCoordinatesFn>("XTranslateCoordinates");
@@ -371,7 +380,8 @@ struct X11Api {
                               fetch_name != nullptr && get_class_hint != nullptr && intern_atom != nullptr &&
                               get_window_property != nullptr && free_memory != nullptr && get_image != nullptr &&
                               destroy_image != nullptr && get_pixel != nullptr && free_pixmap != nullptr &&
-                              send_event != nullptr && flush != nullptr && sync != nullptr &&
+                              send_event != nullptr && raise_window != nullptr && set_input_focus != nullptr &&
+                              flush != nullptr && sync != nullptr &&
                               translate_coordinates != nullptr && set_error_handler != nullptr;
         if (!required) {
             std::cerr << "dashboard: libX11 is missing one or more required symbols\n";
@@ -384,6 +394,11 @@ struct X11Api {
             composite_unredirect_window = composite.symbol<CompositeUnredirectWindowFn>("XCompositeUnredirectWindow");
             composite_name_window_pixmap = composite.symbol<CompositeNameWindowPixmapFn>("XCompositeNameWindowPixmap");
         }
+        if (xtst.open("libXtst.so.6")) {
+            test_query_extension = xtst.symbol<TestQueryExtensionFn>("XTestQueryExtension");
+            test_fake_motion_event = xtst.symbol<TestFakeMotionEventFn>("XTestFakeMotionEvent");
+            test_fake_button_event = xtst.symbol<TestFakeButtonEventFn>("XTestFakeButtonEvent");
+        }
         return true;
     }
 
@@ -392,8 +407,14 @@ struct X11Api {
                composite_unredirect_window != nullptr && composite_name_window_pixmap != nullptr;
     }
 
+    [[nodiscard]] bool has_xtest() const {
+        return test_query_extension != nullptr && test_fake_motion_event != nullptr &&
+               test_fake_button_event != nullptr;
+    }
+
     SharedLibrary xlib;
     SharedLibrary composite;
+    SharedLibrary xtst;
     OpenDisplayFn open_display{};
     CloseDisplayFn close_display{};
     DefaultScreenFn default_screen{};
@@ -410,10 +431,15 @@ struct X11Api {
     GetPixelFn get_pixel{};
     FreePixmapFn free_pixmap{};
     SendEventFn send_event{};
+    RaiseWindowFn raise_window{};
+    SetInputFocusFn set_input_focus{};
     FlushFn flush{};
     SyncFn sync{};
     TranslateCoordinatesFn translate_coordinates{};
     SetErrorHandlerFn set_error_handler{};
+    TestQueryExtensionFn test_query_extension{};
+    TestFakeMotionEventFn test_fake_motion_event{};
+    TestFakeButtonEventFn test_fake_button_event{};
     CompositeQueryExtensionFn composite_query_extension{};
     CompositeRedirectWindowFn composite_redirect_window{};
     CompositeUnredirectWindowFn composite_unredirect_window{};
@@ -789,8 +815,20 @@ public:
             int error_base = 0;
             composite_available_ = api_.composite_query_extension(display_, &event_base, &error_base) != x11::False;
         }
+        if (api_.has_xtest()) {
+            int event_base = 0;
+            int error_base = 0;
+            int major_version = 0;
+            int minor_version = 0;
+            xtest_available_ = api_.test_query_extension(
+                display_, &event_base, &error_base, &major_version, &minor_version) != x11::False;
+        }
         std::cout << "dashboard: X11 capture ready (XComposite="
-                  << (composite_available_ ? "yes" : "no; using XGetImage fallback") << ")\n";
+                  << (composite_available_ ? "yes" : "no; using XGetImage fallback")
+                  << ", XTest=" << (xtest_available_ ? "yes" : "no; using XSendEvent fallback") << ")\n";
+        if (!xtest_available_) {
+            std::cerr << "dashboard: libXtst/XTEST is unavailable; Wine may ignore fallback pointer events\n";
+        }
         return true;
     }
 
@@ -823,6 +861,7 @@ public:
         }
 
         target_ = candidate->window;
+        top_level_target_ = candidate->window;
         source_width_ = static_cast<std::uint32_t>(candidate->width);
         source_height_ = static_cast<std::uint32_t>(candidate->height);
         title_ = candidate->title;
@@ -908,42 +947,58 @@ public:
         const int y = static_cast<int>(source_height_) - 1 - clamp_coordinate(overlay_y, source_height_);
         last_x_ = x;
         last_y_ = y;
-        x11::XEvent event{};
-        event.motion.type = x11::MotionNotify;
-        event.motion.send_event = x11::True;
-        event.motion.display = display_;
-        event.motion.window = target_;
-        event.motion.root = root_;
-        event.motion.time = 0UL;
-        event.motion.x = x;
-        event.motion.y = y;
-        populate_root_coordinates(event.motion.x_root, event.motion.y_root, x, y);
-        event.motion.state = button_state;
-        event.motion.same_screen = x11::True;
-        api_.send_event(display_, target_, x11::True, x11::PointerMotionMask, &event);
-        api_.flush(display_);
+
+        bool injected_with_xtest = false;
+        if (xtest_available_) {
+            if (!input_target_prepared_) {
+                prepare_target_for_input();
+            }
+            injected_with_xtest = inject_xtest_motion(x, y);
+            if (!injected_with_xtest) {
+                disable_xtest_after_failure("motion");
+            }
+        }
+        if (!injected_with_xtest) {
+            send_x11_motion(x, y, button_state);
+        }
+        if (!pointer_event_logged_) {
+            pointer_event_logged_ = true;
+            std::cout << "dashboard: SteamVR pointer events received; injection="
+                      << (injected_with_xtest ? "XTest" : "XSendEvent fallback")
+                      << " coordinates=" << x << ',' << y << '\n';
+        }
     }
 
     void send_mouse_button(unsigned int button, bool pressed, unsigned int button_state) {
         if (target_ == 0UL) {
             return;
         }
-        x11::XEvent event{};
-        event.button.type = pressed ? x11::ButtonPress : x11::ButtonRelease;
-        event.button.send_event = x11::True;
-        event.button.display = display_;
-        event.button.window = target_;
-        event.button.root = root_;
-        event.button.time = 0UL;
-        event.button.x = last_x_;
-        event.button.y = last_y_;
-        populate_root_coordinates(event.button.x_root, event.button.y_root, last_x_, last_y_);
-        event.button.state = button_state;
-        event.button.button = button;
-        event.button.same_screen = x11::True;
-        const long mask = pressed ? x11::ButtonPressMask : x11::ButtonReleaseMask;
-        api_.send_event(display_, target_, x11::True, mask, &event);
-        api_.flush(display_);
+
+        bool injected_with_xtest = false;
+        if (xtest_available_) {
+            if (pressed || !input_target_prepared_) {
+                prepare_target_for_input();
+            }
+            const bool positioned = inject_xtest_motion(last_x_, last_y_);
+            injected_with_xtest = positioned &&
+                                  api_.test_fake_button_event(
+                                      display_, button, pressed ? x11::True : x11::False, 0UL) != 0;
+            api_.flush(display_);
+            if (!injected_with_xtest) {
+                disable_xtest_after_failure("button");
+            }
+        }
+        if (!injected_with_xtest) {
+            send_x11_button(button, pressed, button_state);
+        }
+
+        ++button_event_count_;
+        if (button_event_count_ <= 20U || button_event_count_ % 100U == 0U) {
+            std::cout << "dashboard: pointer button=" << button
+                      << " action=" << (pressed ? "down" : "up")
+                      << " coordinates=" << last_x_ << ',' << last_y_
+                      << " injection=" << (injected_with_xtest ? "XTest" : "XSendEvent fallback") << '\n';
+        }
     }
 
     void send_scroll(float x_delta, float y_delta, unsigned int button_state) {
@@ -966,6 +1021,75 @@ public:
     }
 
 private:
+    void send_x11_motion(int x, int y, unsigned int button_state) {
+        x11::XEvent event{};
+        event.motion.type = x11::MotionNotify;
+        event.motion.send_event = x11::True;
+        event.motion.display = display_;
+        event.motion.window = target_;
+        event.motion.root = root_;
+        event.motion.time = 0UL;
+        event.motion.x = x;
+        event.motion.y = y;
+        populate_root_coordinates(event.motion.x_root, event.motion.y_root, x, y);
+        event.motion.state = button_state;
+        event.motion.same_screen = x11::True;
+        api_.send_event(display_, target_, x11::True, x11::PointerMotionMask, &event);
+        api_.flush(display_);
+    }
+
+    void send_x11_button(unsigned int button, bool pressed, unsigned int button_state) {
+        x11::XEvent event{};
+        event.button.type = pressed ? x11::ButtonPress : x11::ButtonRelease;
+        event.button.send_event = x11::True;
+        event.button.display = display_;
+        event.button.window = target_;
+        event.button.root = root_;
+        event.button.time = 0UL;
+        event.button.x = last_x_;
+        event.button.y = last_y_;
+        populate_root_coordinates(event.button.x_root, event.button.y_root, last_x_, last_y_);
+        event.button.state = button_state;
+        event.button.button = button;
+        event.button.same_screen = x11::True;
+        const long mask = pressed ? x11::ButtonPressMask : x11::ButtonReleaseMask;
+        api_.send_event(display_, target_, x11::True, mask, &event);
+        api_.flush(display_);
+    }
+
+    void prepare_target_for_input() {
+        if (target_ == 0UL) {
+            return;
+        }
+        g_x_error_count.store(0U);
+        api_.raise_window(display_, top_level_target_ != 0UL ? top_level_target_ : target_);
+        api_.set_input_focus(display_, target_, x11::RevertToParent, x11::CurrentTime);
+        api_.sync(display_, x11::False);
+        input_target_prepared_ = g_x_error_count.load() == 0U;
+        if (!input_target_prepared_ && !focus_failure_logged_) {
+            focus_failure_logged_ = true;
+            std::cerr << "dashboard: X11 could not raise/focus the Standable input window; trying pointer injection anyway\n";
+        }
+    }
+
+    [[nodiscard]] bool inject_xtest_motion(int local_x, int local_y) {
+        int root_x = 0;
+        int root_y = 0;
+        populate_root_coordinates(root_x, root_y, local_x, local_y);
+        const bool injected = api_.test_fake_motion_event(display_, screen_, root_x, root_y, 0UL) != 0;
+        api_.flush(display_);
+        return injected;
+    }
+
+    void disable_xtest_after_failure(std::string_view operation) {
+        if (!xtest_failure_logged_) {
+            xtest_failure_logged_ = true;
+            std::cerr << "dashboard: XTest " << operation
+                      << " injection failed; falling back to XSendEvent\n";
+        }
+        xtest_available_ = false;
+    }
+
     struct WindowCandidate {
         x11::Window window{};
         int width{};
@@ -1103,6 +1227,7 @@ private:
             source_width_ = candidate.width;
             source_height_ = candidate.height;
             force_direct_capture_ = true;
+            input_target_prepared_ = false;
             std::cout << "dashboard: selected Wine child render surface 0x"
                       << std::hex << target_ << std::dec
                       << " size=" << source_width_ << 'x' << source_height_
@@ -1259,7 +1384,9 @@ private:
             release_pixmap();
         }
         target_ = 0UL;
+        top_level_target_ = 0UL;
         force_direct_capture_ = false;
+        input_target_prepared_ = false;
         source_width_ = 0U;
         source_height_ = 0U;
         title_.clear();
@@ -1301,14 +1428,21 @@ private:
     x11::Atom net_wm_name_{};
     x11::Atom utf8_string_{};
     bool composite_available_{false};
+    bool xtest_available_{false};
     bool redirected_{false};
     bool force_direct_capture_{false};
+    bool input_target_prepared_{false};
+    bool pointer_event_logged_{false};
+    bool focus_failure_logged_{false};
+    bool xtest_failure_logged_{false};
     x11::Window target_{};
+    x11::Window top_level_target_{};
     x11::Pixmap pixmap_{};
     std::uint32_t source_width_{};
     std::uint32_t source_height_{};
     int last_x_{};
     int last_y_{};
+    std::uint32_t button_event_count_{};
     std::string title_;
     std::string class_name_;
     std::uint32_t blank_frame_count_{};
@@ -1673,6 +1807,7 @@ public:
                 case vr::VREvent_MouseButtonDown: {
                     const unsigned int button = x_button_number(event.data.mouse.button);
                     if (button != 0U && capture != nullptr) {
+                        capture->send_mouse_move(event.data.mouse.x, event.data.mouse.y, x_button_state_);
                         capture->send_mouse_button(button, true, x_button_state_);
                         x_button_state_ |= x_state_mask(button);
                     }
@@ -1681,6 +1816,7 @@ public:
                 case vr::VREvent_MouseButtonUp: {
                     const unsigned int button = x_button_number(event.data.mouse.button);
                     if (button != 0U && capture != nullptr) {
+                        capture->send_mouse_move(event.data.mouse.x, event.data.mouse.y, x_button_state_);
                         capture->send_mouse_button(button, false, x_button_state_);
                         x_button_state_ &= ~x_state_mask(button);
                     }

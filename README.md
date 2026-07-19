@@ -9,7 +9,7 @@ This repository contains only newly written bridge code. It does not include Sta
 Requirements:
 
 - Linux x86-64 with native SteamVR
-- X11 or a Wayland desktop with XWayland, plus `libX11` (`libXcomposite` is recommended)
+- X11 or a Wayland desktop with XWayland, plus `libX11` and `libXtst` (`libXcomposite` is recommended)
 - Steam running and signed in to an account that owns Standable
 - the original **Standable Full Body Estimation** Steam installation
 - Proton Experimental or Proton Hotfix installed through Steam
@@ -25,7 +25,7 @@ cd standable-linux-bridge
 
 The installer finds Standable across your Steam library folders, verifies the bundled distribution (or downloads the latest release), installs only bridge-owned files, keeps the original DLL and UI untouched, and registers the driver with SteamVR.
 
-After SteamVR starts, Standable appears as its own dashboard tab. A native Linux companion creates that tab through `IVROverlay::CreateDashboardOverlay`, captures the unchanged Proton/XWayland Standable window, uploads it through a persistent OpenGL texture, and forwards SteamVR pointer events back to it. This avoids depending on the Windows UI's OpenVR overlay connection, which is unreliable across Proton's process boundary, and disables the original duplicate Windows dashboard entry.
+After SteamVR starts, Standable appears as its own dashboard tab. A native Linux companion creates that tab through `IVROverlay::CreateDashboardOverlay`, captures the unchanged Proton/XWayland Standable window, uploads it through a persistent OpenGL texture, and forwards SteamVR pointer events through XTEST so Wine receives real pointer input. This avoids depending on the Windows UI's OpenVR overlay connection, which is unreliable across Proton's process boundary, and disables the original duplicate Windows dashboard entry.
 
 If auto-detection does not find the app:
 
@@ -96,7 +96,7 @@ Release products:
 
 ```text
 build/Standable-Linux-Bridge-Overlay.zip
-build/Standable-Linux-Bridge-Source-v1.3.4.zip
+build/Standable-Linux-Bridge-Source-v1.3.5.zip
 ```
 
 `make test` covers OpenVR factory negotiation, authenticated loopback transport, provider initialization, tracker registration/properties/pose relay, the native dashboard companion, Proton selection, OpenVR runtime handoff, prefix setup, Steam-client discovery, UI launch, install, update, and driver registration. `make verify` checks binary architectures, exports, dependencies, scripts, and overlay layout.
