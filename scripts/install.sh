@@ -24,9 +24,12 @@ chmod 0755 "$driver_root/bin/linux64/driver_standable.so" \
     "$driver_root/bin/win64/standable_bridge_host.exe" "$script_dir"/*.sh
 
 steamvr_root="$(bash "$script_dir/find-steamvr.sh")"
+if ! bash "$script_dir/enable-dashboard.sh" --if-present; then
+    echo "WARNING: The dashboard preference could not be enabled automatically." >&2
+fi
 "$steamvr_root/bin/vrpathreg.sh" adddriver "$driver_root"
 
 echo "Registered Standable Linux bridge: $driver_root"
-echo "Start or restart SteamVR. The bridge and Standable UI will start automatically."
+echo "Start or restart SteamVR. Open Standable from its SteamVR dashboard tab."
 echo "Run ./scripts/diagnose.sh if the trackers do not appear."
 echo "Future updates: ./scripts/update.sh"

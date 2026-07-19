@@ -240,6 +240,7 @@ required_overlay=(
     "bin/win64/steam_api64.dll"
     "scripts/install.sh"
     "scripts/update.sh"
+    "scripts/enable-dashboard.sh"
     "scripts/bridge-installer.sh"
 )
 for relative in "${required_overlay[@]}"; do

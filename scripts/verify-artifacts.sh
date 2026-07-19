@@ -12,7 +12,7 @@ steam_api_bridge="$root/bin/win64/steam_api64.dll"
 [[ -f "$steam_api_bridge" ]] || { echo "missing $steam_api_bridge" >&2; exit 1; }
 [[ -f "$root/VERSION" ]] || { echo "missing VERSION" >&2; exit 1; }
 [[ -f "$root/README-LINUX.md" ]] || { echo "missing README-LINUX.md" >&2; exit 1; }
-for script in find-steamvr.sh runtime-common.sh standable-bridge-launcher.sh install.sh update.sh uninstall.sh diagnose.sh bridge-installer.sh; do
+for script in find-steamvr.sh runtime-common.sh enable-dashboard.sh standable-bridge-launcher.sh install.sh update.sh uninstall.sh diagnose.sh bridge-installer.sh; do
     [[ -x "$root/scripts/$script" ]] || { echo "missing executable scripts/$script" >&2; exit 1; }
     bash -n "$root/scripts/$script"
 done

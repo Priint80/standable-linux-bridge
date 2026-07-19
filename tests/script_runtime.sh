@@ -17,7 +17,10 @@ curl_log="$temporary/curl.log"
 
 mkdir -p "$driver_root" "$steamvr_root/bin" "$steam_root/legacycompat" "$(dirname -- "$runner")"
 cp -a "$overlay/." "$driver_root/"
+mkdir -p "$driver_root/saves"
+printf '{\n  "Show in SteamVR Dashboard": false\n}\n' >"$driver_root/saves/settings.json"
 touch "$driver_root/Standable.exe" \
+    "$driver_root/openvr_api.dll" \
     "$driver_root/driver.vrdrivermanifest" \
     "$driver_root/bin/win64/driver_standable.dll" \
     "$steam_root/legacycompat/steamclient64.dll"
@@ -46,6 +49,27 @@ grep -q 'args=<run><cmd.exe></c><exit>' "$log"
 grep -q "cwd=$driver_root/bin/win64" "$log"
 grep -q 'standable_bridge_host.exe><--session><99112233><--native-port><42470><--helper-port><42471>' "$log"
 grep -q 'Standable.exe' "$log"
+grep -Fq "vr_runtime=$steamvr_root" "$log"
+grep -Fq "vr_override=$steamvr_root" "$log"
+grep -Fq "vr_paths=$XDG_DATA_HOME/standable-linux-bridge/openvr/openvrpaths.vrpath" "$log"
+grep -Eq '"Show in SteamVR Dashboard"[[:space:]]*:[[:space:]]*true' "$driver_root/saves/settings.json"
+dashboard_backup_count="$(find "$XDG_STATE_HOME/standable-linux-bridge/settings-backups" -type f -name 'settings-*.json' | wc -l)"
+((dashboard_backup_count == 1))
+
+openvr_paths="$XDG_DATA_HOME/standable-linux-bridge/openvr/openvrpaths.vrpath"
+[[ -f "$openvr_paths" ]]
+grep -Fq "\"$steamvr_root\"" "$openvr_paths"
+grep -Fq "\"$steam_root/config\"" "$openvr_paths"
+grep -Fq "\"$steam_root/logs\"" "$openvr_paths"
+python3 - "$openvr_paths" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    document = json.load(handle)
+assert document["version"] == 1
+assert len(document["runtime"]) == 1
+PY
 
 export STANDABLE_TEST_LOG="$registry_log"
 mkdir -p "$installer_tree/dist"
@@ -76,4 +100,4 @@ grep -q "args=<removedriver><$driver_root>" "$registry_log"
 backup_count="$(find "$XDG_STATE_HOME/standable-linux-bridge/backups" -mindepth 1 -maxdepth 1 -type d | wc -l)"
 ((backup_count == 3))
 
-echo "PASS: Proton selection, prefix sharing, Steam client discovery, UI launch, bundled/repository install, update, and registration"
+echo "PASS: Proton/OpenVR setup, dashboard enablement, prefix sharing, UI launch, bundled/repository install, update, and registration"

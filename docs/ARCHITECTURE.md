@@ -6,6 +6,8 @@ Native SteamVR loads `bin/linux64/driver_standable.so`. This provider mirrors co
 
 `scripts/standable-bridge-launcher.sh` selects Proton or Wine, prepares a private prefix for Steam App 2370570, and launches `standable_bridge_host.exe` and the original `Standable.exe` in that same prefix. The helper runs from its own `bin/win64` directory so normal Windows dependency resolution finds the bridge adapter beside it.
 
+Before Proton starts, the launcher writes a bridge-owned `openvrpaths.vrpath` containing the discovered native SteamVR runtime and Steam config/log directories. It exports `VR_PATHREG_OVERRIDE`, `VR_OVERRIDE`, and `PROTON_VR_RUNTIME`, allowing Proton to populate its Windows OpenVR path registry and `vrclient` runtime even when the host user's default OpenVR path file is missing or stale. This lets the original UI's `openvr_api.dll` and existing dashboard-overlay implementation connect to the running native SteamVR session.
+
 The helper loads the unchanged `driver_standable.dll`, calls its exported `HmdDriverFactory`, and initializes `IServerTrackedDeviceProvider_004`. Its OpenVR compatibility host implements the interfaces requested by the original provider:
 
 - server-driver host device registration and pose callbacks
@@ -50,4 +52,4 @@ The installed `scripts/update.sh` reuses the same installer engine. GitHub Actio
 
 ## Preserved original behavior
 
-The original application folder remains the resource root, so tracker profiles, render models, icons, sounds, localization, settings, custom poses, and named-pipe UI behavior remain available. The bridge changes only platform hosting and pose transport.
+The original application folder remains the resource root, so tracker profiles, render models, icons, sounds, localization, settings, custom poses, named-pipe UI behavior, and SteamVR dashboard renderer remain available. The bridge changes only platform hosting, OpenVR runtime discovery, and pose transport.

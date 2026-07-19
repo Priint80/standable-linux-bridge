@@ -20,7 +20,7 @@ Requirements:
    ./scripts/install.sh
    ```
 
-4. Start SteamVR. The bridge launches the original Standable UI automatically. Proton's private prefix can take longer to initialize on the first launch.
+4. Start SteamVR. The bridge launches the original Standable UI automatically, and Standable appears as a dashboard tab. Proton's private prefix can take longer to initialize on the first launch.
 
 The completed folder should include:
 
@@ -41,6 +41,18 @@ Standable Full Body Estimation/
 ```
 
 The overlay does not replace `driver_standable.dll`, `Standable.exe`, resources, settings, or saved poses.
+
+## SteamVR dashboard
+
+Standable 3.0.3 already contains its own SteamVR dashboard renderer. The bridge passes the native SteamVR runtime, config, and log locations into the private Proton prefix so the unchanged UI can connect through `openvr_api.dll`. Installation also enables the existing **Show in SteamVR Dashboard** setting, preserving a timestamped settings backup if it needed to change the value.
+
+To enable that setting again manually:
+
+```bash
+./scripts/enable-dashboard.sh
+```
+
+Close and restart SteamVR after changing it. If the tab is missing, run `./scripts/diagnose.sh`; its report now shows the source and Proton OpenVR path files, `vrclient_x64.dll`, the dashboard setting, and relevant UI log lines.
 
 ## Update
 

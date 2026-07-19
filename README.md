@@ -24,6 +24,8 @@ cd standable-linux-bridge
 
 The installer finds Standable across your Steam library folders, verifies the bundled distribution (or downloads the latest release), installs only bridge-owned files, keeps the original DLL and UI untouched, and registers the driver with SteamVR.
 
+After SteamVR starts, Standable appears as its own dashboard tab. The bridge enables Standable's existing dashboard preference and gives Proton the native SteamVR OpenVR runtime paths; the dashboard itself is still rendered by the original Standable UI.
+
 If auto-detection does not find the app:
 
 ```bash
@@ -90,10 +92,10 @@ Release products:
 
 ```text
 build/Standable-Linux-Bridge-Overlay.zip
-build/Standable-Linux-Bridge-Source-v1.1.0.zip
+build/Standable-Linux-Bridge-Source-v1.2.0.zip
 ```
 
-`make test` covers OpenVR factory negotiation, authenticated loopback transport, provider initialization, tracker registration/properties/pose relay, Proton selection, prefix setup, Steam-client discovery, UI launch, install, update, and driver registration. `make verify` checks binary architectures, exports, dependencies, scripts, and overlay layout.
+`make test` covers OpenVR factory negotiation, authenticated loopback transport, provider initialization, tracker registration/properties/pose relay, Proton selection, OpenVR runtime handoff, dashboard enablement, prefix setup, Steam-client discovery, UI launch, install, update, and driver registration. `make verify` checks binary architectures, exports, dependencies, scripts, and overlay layout.
 
 For an integration check against a local original installation:
 

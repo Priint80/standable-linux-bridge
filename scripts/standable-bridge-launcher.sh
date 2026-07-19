@@ -40,15 +40,26 @@ helper="$driver_root/bin/win64/standable_bridge_host.exe"
 original_driver="$driver_root/bin/win64/driver_standable.dll"
 steam_api_bridge="$driver_root/bin/win64/steam_api64.dll"
 ui="$driver_root/Standable.exe"
-for required in "$helper" "$original_driver" "$steam_api_bridge" "$ui"; do
+openvr_api="$driver_root/openvr_api.dll"
+for required in "$helper" "$original_driver" "$steam_api_bridge" "$ui" "$openvr_api"; do
     [[ -f "$required" ]] || { echo "Missing required file: $required"; exit 3; }
 done
 
 steamvr_root="$(bash "$script_dir/find-steamvr.sh")"
 standable_select_runner "$steamvr_root"
-standable_configure_runner "$data_root" "$driver_root"
+standable_configure_runner "$data_root" "$driver_root" "$steamvr_root"
 echo "SteamVR: $steamvr_root"
 echo "Runner: $STANDABLE_RUNNER_KIND ($STANDABLE_RUNNER_PATH)"
+echo "OpenVR paths: $STANDABLE_OPENVR_PATHS"
+
+dashboard_marker="$data_root/.dashboard-setting-applied"
+if [[ ! -f "$dashboard_marker" && -f "$driver_root/saves/settings.json" ]]; then
+    if bash "$script_dir/enable-dashboard.sh" --quiet; then
+        touch "$dashboard_marker"
+    else
+        echo "WARNING: The Standable dashboard preference could not be enabled automatically."
+    fi
+fi
 
 exec 9>"$state_root/bridge.lock"
 if ! flock -w 20 9; then

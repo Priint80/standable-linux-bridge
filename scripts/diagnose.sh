@@ -12,6 +12,7 @@ echo
 for path in \
     "$driver_root/driver.vrdrivermanifest" \
     "$driver_root/Standable.exe" \
+    "$driver_root/openvr_api.dll" \
     "$driver_root/bin/win64/driver_standable.dll" \
     "$driver_root/bin/win64/standable_bridge_host.exe" \
     "$driver_root/bin/win64/steam_api64.dll" \
@@ -45,6 +46,21 @@ if [[ -n "$steamvr_root" ]]; then
         else
             echo "NOT YET VISIBLE: steamclient64.dll (run Steam once and let Proton initialize the prefix)"
         fi
+        bridge_openvr_paths="$data_root/openvr/openvrpaths.vrpath"
+        prefix_openvr_paths="$data_root/compatdata/2370570/pfx/drive_c/users/steamuser/AppData/Local/openvr/openvrpaths.vrpath"
+        vrclient="$data_root/compatdata/2370570/pfx/drive_c/vrclient/bin/vrclient_x64.dll"
+        for label_and_path in \
+            "Bridge OpenVR paths|$bridge_openvr_paths" \
+            "Proton OpenVR paths|$prefix_openvr_paths" \
+            "Proton vrclient|$vrclient"; do
+            label="${label_and_path%%|*}"
+            path="${label_and_path#*|}"
+            if [[ -f "$path" ]]; then
+                echo "OK: $label: $path"
+            else
+                echo "MISSING: $label: $path"
+            fi
+        done
     else
         echo "MISSING: compatible Proton or Wine runner"
     fi
@@ -53,6 +69,18 @@ if [[ -n "$steamvr_root" ]]; then
     "$steamvr_root/bin/vrpathreg.sh" show 2>&1 | sed 's/^/  /'
 else
     echo "MISSING: SteamVR (set STEAMVR_ROOT if it is installed in a custom location)"
+fi
+
+echo
+settings="$driver_root/saves/settings.json"
+if [[ ! -f "$settings" ]]; then
+    echo "Dashboard setting: MISSING ($settings)"
+elif grep -Eq '"Show in SteamVR Dashboard"[[:space:]]*:[[:space:]]*true' "$settings"; then
+    echo "Dashboard setting: enabled"
+elif grep -Eq '"Show in SteamVR Dashboard"[[:space:]]*:[[:space:]]*false' "$settings"; then
+    echo "Dashboard setting: disabled"
+else
+    echo "Dashboard setting: key not found"
 fi
 
 state_root="${XDG_STATE_HOME:-$HOME/.local/state}/standable-linux-bridge"
@@ -67,6 +95,14 @@ echo
 echo "UI log: $state_root/ui.log"
 if [[ -f "$state_root/ui.log" ]]; then
     tail -n 60 "$state_root/ui.log" | sed 's/^/  /'
+    echo
+    echo "Recent dashboard/OpenVR UI lines:"
+    dashboard_lines="$(tail -n 500 "$state_root/ui.log" | grep -Ei '\[VRDashMirror\]|OpenVR|CreateDashboardOverlay|SetOverlay|dashboard' | tail -n 80 || true)"
+    if [[ -n "$dashboard_lines" ]]; then
+        printf '%s\n' "$dashboard_lines" | sed 's/^/  /'
+    else
+        echo "  No dashboard-related UI lines yet."
+    fi
 else
     echo "  No UI log yet."
 fi

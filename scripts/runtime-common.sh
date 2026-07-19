@@ -49,6 +49,44 @@ standable_rotate_log() {
     fi
 }
 
+standable_json_string() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\b'/\\b}"
+    value="${value//$'\f'/\\f}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+    value="${value//$'\t'/\\t}"
+    printf '%s' "$value"
+}
+
+standable_configure_openvr() {
+    local data_root="$1"
+    local steamvr_root="$2"
+    local openvr_dir="$data_root/openvr"
+    local openvr_paths="$openvr_dir/openvrpaths.vrpath"
+    local temporary
+
+    mkdir -p "$openvr_dir"
+    temporary="$(mktemp "$openvr_dir/.openvrpaths.vrpath.XXXXXX")"
+    chmod 0600 "$temporary"
+    if ! printf '{\n   "config": ["%s"],\n   "jsonid": "vrpathreg",\n   "log": ["%s"],\n   "runtime": ["%s"],\n   "version": 1\n}\n' \
+        "$(standable_json_string "$STANDABLE_STEAM_CLIENT_ROOT/config")" \
+        "$(standable_json_string "$STANDABLE_STEAM_CLIENT_ROOT/logs")" \
+        "$(standable_json_string "$steamvr_root")" >"$temporary"; then
+        rm -f -- "$temporary"
+        return 1
+    fi
+    mv -f -- "$temporary" "$openvr_paths"
+
+    STANDABLE_OPENVR_PATHS="$openvr_paths"
+    export STANDABLE_OPENVR_PATHS
+    export VR_PATHREG_OVERRIDE="$openvr_paths"
+    export VR_OVERRIDE="$steamvr_root"
+    export PROTON_VR_RUNTIME="$steamvr_root"
+}
+
 standable_select_runner() {
     local steamvr_root="$1"
     local inferred_library primary_root candidate root
@@ -130,6 +168,7 @@ standable_select_runner() {
 standable_configure_runner() {
     local data_root="$1"
     local driver_root="$2"
+    local steamvr_root="${3:-}"
 
     mkdir -p "$data_root"
     export SteamAppId=2370570
@@ -148,5 +187,9 @@ standable_configure_runner() {
         export WINEPREFIX="$data_root/wineprefix"
         mkdir -p "$WINEPREFIX"
         STANDABLE_RUN_COMMAND=("$STANDABLE_RUNNER_PATH")
+    fi
+
+    if [[ -n "$steamvr_root" ]]; then
+        standable_configure_openvr "$data_root" "$steamvr_root"
     fi
 }
