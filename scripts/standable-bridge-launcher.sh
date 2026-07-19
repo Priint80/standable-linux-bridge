@@ -30,8 +30,10 @@ data_root="${XDG_DATA_HOME:-$HOME/.local/share}/standable-linux-bridge"
 mkdir -p "$state_root" "$data_root"
 bridge_log="$state_root/bridge.log"
 ui_log="$state_root/ui.log"
+dashboard_log="$state_root/dashboard.log"
 standable_rotate_log "$bridge_log"
 standable_rotate_log "$ui_log"
+standable_rotate_log "$dashboard_log"
 exec >>"$bridge_log" 2>&1
 
 printf '\n[%(%Y-%m-%d %H:%M:%S)T] bridge session=%s starting\n' -1 "$session"
@@ -39,9 +41,10 @@ printf '\n[%(%Y-%m-%d %H:%M:%S)T] bridge session=%s starting\n' -1 "$session"
 helper="$driver_root/bin/win64/standable_bridge_host.exe"
 original_driver="$driver_root/bin/win64/driver_standable.dll"
 steam_api_bridge="$driver_root/bin/win64/steam_api64.dll"
+dashboard="$driver_root/bin/linux64/standable_dashboard_overlay"
 ui="$driver_root/Standable.exe"
 openvr_api="$driver_root/openvr_api.dll"
-for required in "$helper" "$original_driver" "$steam_api_bridge" "$ui" "$openvr_api"; do
+for required in "$helper" "$original_driver" "$steam_api_bridge" "$dashboard" "$ui" "$openvr_api"; do
     [[ -f "$required" ]] || { echo "Missing required file: $required"; exit 3; }
 done
 
@@ -95,6 +98,39 @@ if [[ "${STANDABLE_AUTOSTART_UI:-1}" != "0" ]]; then
         printf '[%(%Y-%m-%d %H:%M:%S)T] Standable UI exited with status %s\n' -1 "$ui_status" >>"$ui_log"
     ) &
     echo "$!" >"$state_root/ui-launcher.pid"
+fi
+
+dashboard_pid=""
+cleanup_dashboard() {
+    if [[ -n "$dashboard_pid" ]] && kill -0 "$dashboard_pid" 2>/dev/null; then
+        kill "$dashboard_pid" 2>/dev/null || true
+        wait "$dashboard_pid" 2>/dev/null || true
+    fi
+}
+trap cleanup_dashboard EXIT
+
+if [[ "${STANDABLE_AUTOSTART_DASHBOARD:-1}" != "0" ]]; then
+    dashboard_fps="${STANDABLE_DASHBOARD_FPS:-20}"
+    if [[ ! "$dashboard_fps" =~ ^[1-9][0-9]*$ ]] || ((dashboard_fps > 60)); then
+        echo "WARNING: invalid STANDABLE_DASHBOARD_FPS=$dashboard_fps; using 20"
+        dashboard_fps=20
+    fi
+    (
+        exec 9>&-
+        exec 7>"$state_root/dashboard.lock"
+        flock -n 7 || exit 0
+        printf '\n[%(%Y-%m-%d %H:%M:%S)T] native dashboard companion starting\n' -1
+        steamvr_library_path="$steamvr_root/bin/linux64:$steamvr_root/bin/linux64/qt/lib"
+        export LD_LIBRARY_PATH="$steamvr_library_path${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+        exec "$dashboard" \
+            --steamvr-root "$steamvr_root" \
+            --driver-root "$driver_root" \
+            --parent-pid "$$" \
+            --fps "$dashboard_fps"
+    ) >>"$dashboard_log" 2>&1 &
+    dashboard_pid="$!"
+    echo "$dashboard_pid" >"$state_root/dashboard.pid"
+    echo "Native dashboard companion launched (pid=$dashboard_pid)"
 fi
 
 echo "Starting original Standable provider host"

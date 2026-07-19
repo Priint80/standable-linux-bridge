@@ -53,6 +53,8 @@ grep -q 'Standable.exe' "$log"
 grep -Fq "vr_runtime=$steamvr_root" "$log"
 grep -Fq "vr_override=$steamvr_root" "$log"
 grep -Fq "vr_paths=$XDG_DATA_HOME/standable-linux-bridge/openvr/openvrpaths.vrpath" "$log"
+[[ -f "$XDG_STATE_HOME/standable-linux-bridge/dashboard.log" ]]
+grep -q 'native dashboard companion starting' "$XDG_STATE_HOME/standable-linux-bridge/dashboard.log"
 grep -Eq '"Show in SteamVR Dashboard"[[:space:]]*:[[:space:]]*true' "$driver_root/saves/settings.json"
 dashboard_backup_count="$(find "$XDG_STATE_HOME/standable-linux-bridge/settings-backups" -type f -name 'settings-*.json' | wc -l)"
 ((dashboard_backup_count == 1))

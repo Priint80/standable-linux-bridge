@@ -9,6 +9,7 @@ This repository contains only newly written bridge code. It does not include Sta
 Requirements:
 
 - Linux x86-64 with native SteamVR
+- X11 or a Wayland desktop with XWayland, plus `libX11` (`libXcomposite` is recommended)
 - Steam running and signed in to an account that owns Standable
 - the original **Standable Full Body Estimation** Steam installation
 - Proton Experimental or Proton Hotfix installed through Steam
@@ -24,7 +25,7 @@ cd standable-linux-bridge
 
 The installer finds Standable across your Steam library folders, verifies the bundled distribution (or downloads the latest release), installs only bridge-owned files, keeps the original DLL and UI untouched, and registers the driver with SteamVR.
 
-After SteamVR starts, Standable appears as its own dashboard tab. The bridge enables Standable's existing dashboard preference and gives Proton the native SteamVR OpenVR runtime paths; the dashboard itself is still rendered by the original Standable UI.
+After SteamVR starts, Standable appears as its own dashboard tab. A native Linux companion creates that tab through `IVROverlay::CreateDashboardOverlay`, captures the unchanged Proton/XWayland Standable window, and forwards SteamVR pointer events back to it. This avoids depending on the Windows UI's OpenVR overlay connection, which is unreliable across Proton's process boundary.
 
 If auto-detection does not find the app:
 
@@ -63,6 +64,7 @@ Runtime logs are written to:
 ```text
 ~/.local/state/standable-linux-bridge/bridge.log
 ~/.local/state/standable-linux-bridge/ui.log
+~/.local/state/standable-linux-bridge/dashboard.log
 ```
 
 Useful overrides:
@@ -94,10 +96,10 @@ Release products:
 
 ```text
 build/Standable-Linux-Bridge-Overlay.zip
-build/Standable-Linux-Bridge-Source-v1.2.1.zip
+build/Standable-Linux-Bridge-Source-v1.3.0.zip
 ```
 
-`make test` covers OpenVR factory negotiation, authenticated loopback transport, provider initialization, tracker registration/properties/pose relay, Proton selection, OpenVR runtime handoff, dashboard enablement, prefix setup, Steam-client discovery, UI launch, install, update, and driver registration. `make verify` checks binary architectures, exports, dependencies, scripts, and overlay layout.
+`make test` covers OpenVR factory negotiation, authenticated loopback transport, provider initialization, tracker registration/properties/pose relay, the native dashboard companion, Proton selection, OpenVR runtime handoff, prefix setup, Steam-client discovery, UI launch, install, update, and driver registration. `make verify` checks binary architectures, exports, dependencies, scripts, and overlay layout.
 
 For an integration check against a local original installation:
 

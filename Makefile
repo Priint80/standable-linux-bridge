@@ -7,13 +7,16 @@ VERSION := $(shell tr -d '\r\n' < VERSION)
 OPENVR_DIR := $(BUILD_DIR)/openvr
 OPENVR_INCLUDE_DIR := $(OPENVR_DIR)/include
 OPENVR_HEADER := $(OPENVR_INCLUDE_DIR)/openvr_driver.h
+OPENVR_APP_HEADER := $(OPENVR_INCLUDE_DIR)/openvr.h
 NATIVE_OBJ_DIR := $(BUILD_DIR)/native
+DASHBOARD_OBJ_DIR := $(BUILD_DIR)/dashboard
 WINDOWS_OBJ_DIR := $(BUILD_DIR)/windows
 TEST_DIR := $(BUILD_DIR)/tests
 OVERLAY_ROOT := $(BUILD_DIR)/overlay
 DIST_DIR := dist
 INTEGRATION_ROOT := $(BUILD_DIR)/integration/Standable Full Body Estimation
 NATIVE_SO := $(NATIVE_OBJ_DIR)/driver_standable.so
+DASHBOARD_APP := $(DASHBOARD_OBJ_DIR)/standable_dashboard_overlay
 WINDOWS_HELPER := $(WINDOWS_OBJ_DIR)/standable_bridge_host.exe
 STEAM_API_BRIDGE := $(WINDOWS_OBJ_DIR)/steam_api64.dll
 FACTORY_TEST := $(TEST_DIR)/factory_smoke
@@ -25,10 +28,14 @@ SOURCE_ZIP := $(BUILD_DIR)/Standable-Linux-Bridge-Source-v$(VERSION).zip
 OPENVR_COMMIT := 0924064316de3effbcd1acf1e309182a2deb1c05
 OPENVR_HEADER_SHA256 := 1036efe998d63e82d1d3db2b32a2f58df4a8eeaf5280f50aaf28220ff60a40ab
 OPENVR_HEADER_URL := https://raw.githubusercontent.com/ValveSoftware/openvr/$(OPENVR_COMMIT)/headers/openvr_driver.h
+OPENVR_APP_HEADER_SHA256 := 21f21ff11f23cbbf51297e844c8111eb6eba952d4bc039a2a8f55e8f18597bde
+OPENVR_APP_HEADER_URL := https://raw.githubusercontent.com/ValveSoftware/openvr/$(OPENVR_COMMIT)/headers/openvr.h
 
 CPPFLAGS := -Iinclude -isystem $(OPENVR_INCLUDE_DIR) -DSTANDABLE_BRIDGE_VERSION=\"$(VERSION)\"
 NATIVE_CXXFLAGS := -std=c++20 -O2 -g -fPIC -fvisibility=hidden -Wall -Wextra -Wpedantic -Wconversion -Wshadow
 NATIVE_LDFLAGS := -shared -Wl,--version-script=packaging/driver.exports.map -Wl,-z,defs -Wl,-z,now -Wl,-z,relro -Wl,--no-undefined
+DASHBOARD_CXXFLAGS := -std=c++23 -O2 -g -fPIE -Wall -Wextra -Wpedantic -Wconversion -Wshadow
+DASHBOARD_LDFLAGS := -pie -Wl,-z,now -Wl,-z,relro
 WINDOWS_CXXFLAGS := -target x86_64-windows-gnu -std=c++20 -O2 -Wall -Wextra -Wpedantic
 WINDOWS_LDFLAGS := -target x86_64-windows-gnu -static -O2 -s
 
@@ -37,6 +44,7 @@ NATIVE_SOURCES := \
 	src/native/native_transport.cpp \
 	src/native/relay_tracker.cpp
 NATIVE_OBJECTS := $(patsubst src/native/%.cpp,$(NATIVE_OBJ_DIR)/%.o,$(NATIVE_SOURCES))
+DASHBOARD_OBJECT := $(DASHBOARD_OBJ_DIR)/dashboard_main.o
 WINDOWS_SOURCES := \
 	src/windows/windows_transport.cpp \
 	src/windows/fake_openvr.cpp \
@@ -48,7 +56,7 @@ STEAM_API_OBJECT := $(WINDOWS_OBJ_DIR)/steam_api_bridge.obj
 
 all: overlay test verify
 
-native: $(NATIVE_SO)
+native: $(NATIVE_SO) $(DASHBOARD_APP)
 
 windows: $(WINDOWS_HELPER) $(STEAM_API_BRIDGE)
 
@@ -57,14 +65,26 @@ $(OPENVR_HEADER):
 	curl --fail --location --silent --show-error --output $@ $(OPENVR_HEADER_URL)
 	@printf '%s  %s\n' '$(OPENVR_HEADER_SHA256)' '$@' | sha256sum --check --status || { rm -f '$@'; echo 'OpenVR header checksum mismatch' >&2; exit 1; }
 
-$(NATIVE_OBJ_DIR)/%.o: src/native/%.cpp $(OPENVR_HEADER) include/bridge_protocol.hpp
+$(OPENVR_APP_HEADER):
+	@mkdir -p $(OPENVR_INCLUDE_DIR)
+	curl --fail --location --silent --show-error --output $@ $(OPENVR_APP_HEADER_URL)
+	@printf '%s  %s\n' '$(OPENVR_APP_HEADER_SHA256)' '$@' | sha256sum --check --status || { rm -f '$@'; echo 'OpenVR application header checksum mismatch' >&2; exit 1; }
+
+$(NATIVE_OBJ_DIR)/%.o: src/native/%.cpp $(OPENVR_HEADER) include/bridge_protocol.hpp VERSION
 	@mkdir -p $(NATIVE_OBJ_DIR)
 	$(CXX) $(CPPFLAGS) $(NATIVE_CXXFLAGS) -MMD -MP -c $< -o $@
 
 $(NATIVE_SO): $(NATIVE_OBJECTS) packaging/driver.exports.map
 	$(CXX) $(NATIVE_LDFLAGS) $(NATIVE_OBJECTS) -ldl -o $@
 
-$(WINDOWS_OBJ_DIR)/%.obj: src/windows/%.cpp $(OPENVR_HEADER) include/bridge_protocol.hpp
+$(DASHBOARD_OBJECT): src/dashboard/dashboard_main.cpp $(OPENVR_APP_HEADER) VERSION
+	@mkdir -p $(DASHBOARD_OBJ_DIR)
+	$(CXX) $(CPPFLAGS) $(DASHBOARD_CXXFLAGS) -MMD -MP -c $< -o $@
+
+$(DASHBOARD_APP): $(DASHBOARD_OBJECT)
+	$(CXX) $(DASHBOARD_LDFLAGS) $^ -ldl -pthread -o $@
+
+$(WINDOWS_OBJ_DIR)/%.obj: src/windows/%.cpp $(OPENVR_HEADER) include/bridge_protocol.hpp VERSION
 	@mkdir -p $(WINDOWS_OBJ_DIR)
 	$(ZIG) c++ $(WINDOWS_CXXFLAGS) $(CPPFLAGS) -c $< -o $@
 
@@ -94,18 +114,22 @@ test: overlay $(FACTORY_TEST) $(TRANSPORT_TEST) $(RELAY_TEST)
 	$(FACTORY_TEST) $(NATIVE_SO)
 	$(TRANSPORT_TEST)
 	$(RELAY_TEST) $(NATIVE_SO)
+	$(DASHBOARD_APP) --self-test
 	bash tests/script_runtime.sh '$(OVERLAY_ROOT)'
 
-overlay: $(NATIVE_SO) $(WINDOWS_HELPER) $(STEAM_API_BRIDGE)
+overlay: $(NATIVE_SO) $(DASHBOARD_APP) $(WINDOWS_HELPER) $(STEAM_API_BRIDGE)
 	@rm -rf '$(OVERLAY_ROOT)'
 	@install -d '$(OVERLAY_ROOT)/bin/linux64' '$(OVERLAY_ROOT)/bin/win64' '$(OVERLAY_ROOT)/scripts'
 	@install -m 0755 '$(NATIVE_SO)' '$(OVERLAY_ROOT)/bin/linux64/driver_standable.so'
 	@strip --strip-unneeded '$(OVERLAY_ROOT)/bin/linux64/driver_standable.so'
+	@install -m 0755 '$(DASHBOARD_APP)' '$(OVERLAY_ROOT)/bin/linux64/standable_dashboard_overlay'
+	@strip --strip-unneeded '$(OVERLAY_ROOT)/bin/linux64/standable_dashboard_overlay'
 	@install -m 0755 '$(WINDOWS_HELPER)' '$(OVERLAY_ROOT)/bin/win64/standable_bridge_host.exe'
 	@install -m 0644 '$(STEAM_API_BRIDGE)' '$(OVERLAY_ROOT)/bin/win64/steam_api64.dll'
 	@install -m 0755 scripts/*.sh '$(OVERLAY_ROOT)/scripts/'
 	@install -m 0755 install.sh '$(OVERLAY_ROOT)/scripts/bridge-installer.sh'
 	@install -m 0644 README-LINUX.md '$(OVERLAY_ROOT)/README-LINUX.md'
+	@install -m 0644 THIRD_PARTY_NOTICES.md '$(OVERLAY_ROOT)/THIRD_PARTY_NOTICES.md'
 	@install -m 0644 VERSION '$(OVERLAY_ROOT)/VERSION'
 
 verify: overlay
@@ -127,7 +151,7 @@ package: overlay verify
 
 package-source:
 	@rm -f '$(SOURCE_ZIP)'
-	@zip -q -r '$(SOURCE_ZIP)' .github .gitattributes .gitignore Makefile VERSION README.md README-LINUX.md install.sh include src tests scripts docs packaging
+	@zip -q -r '$(SOURCE_ZIP)' .github .gitattributes .gitignore Makefile VERSION README.md README-LINUX.md THIRD_PARTY_NOTICES.md install.sh include src tests scripts docs packaging
 	@echo 'Created $(SOURCE_ZIP)'
 
 release: package package-source
@@ -141,4 +165,4 @@ dist: release
 clean:
 	rm -rf '$(BUILD_DIR)'
 
--include $(NATIVE_OBJECTS:.o=.d)
+-include $(NATIVE_OBJECTS:.o=.d) $(DASHBOARD_OBJECT:.o=.d)

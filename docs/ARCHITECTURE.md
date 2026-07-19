@@ -6,7 +6,15 @@ Native SteamVR loads `bin/linux64/driver_standable.so`. This provider mirrors co
 
 `scripts/standable-bridge-launcher.sh` selects Proton or Wine, prepares a private prefix for Steam App 2370570, and launches `standable_bridge_host.exe` and the original `Standable.exe` in that same prefix. The helper runs from its own `bin/win64` directory so normal Windows dependency resolution finds the bridge adapter beside it.
 
-Before Proton starts, the launcher writes a bridge-owned `openvrpaths.vrpath` containing the discovered native SteamVR runtime and Steam config/log directories. It exports `VR_PATHREG_OVERRIDE`, `VR_OVERRIDE`, and `PROTON_VR_RUNTIME`, allowing Proton to populate its Windows OpenVR path registry and `vrclient` runtime even when the host user's default OpenVR path file is missing or stale. This lets the original UI's `openvr_api.dll` and existing dashboard-overlay implementation connect to the running native SteamVR session.
+Before Proton starts, the launcher writes a bridge-owned `openvrpaths.vrpath` containing the discovered native SteamVR runtime and Steam config/log directories. It exports `VR_PATHREG_OVERRIDE`, `VR_OVERRIDE`, and `PROTON_VR_RUNTIME`, allowing Proton to populate its Windows OpenVR path registry and `vrclient` runtime even when the host user's default OpenVR path file is missing or stale.
+
+## Native dashboard companion
+
+`bin/linux64/standable_dashboard_overlay` is launched alongside the original UI. It loads SteamVR's native `bin/linux64/vrclient.so`, initializes as `VRApplication_Overlay`, and calls `CreateDashboardOverlay` to own the Standable dashboard tab. This follows the same native OpenVR application architecture used by Linux dashboard tools such as OVR Advanced Settings, without copying their GPL implementation.
+
+The companion discovers the Proton Standable window by its X11 title and class, uses XComposite's named window pixmap when available, and falls back to direct `XGetImage`. It converts and scales the image to at most 1280×720, then submits raw RGBA frames only while the Standable dashboard page is active. SteamVR mouse and scroll events are translated back into X11 events for the unchanged UI.
+
+This design intentionally targets X11/XWayland. Standard Wayland capture is permission-mediated and does not offer a portable silent API for duplicating an arbitrary application window. Proton's default Linux window path is XWayland; compositor-specific screencopy or portal capture can be added later without changing the dashboard-facing OpenVR layer.
 
 The helper loads the unchanged `driver_standable.dll`, calls its exported `HmdDriverFactory`, and initializes `IServerTrackedDeviceProvider_004`. Its OpenVR compatibility host implements the interfaces requested by the original provider:
 
@@ -52,4 +60,4 @@ The installed `scripts/update.sh` reuses the same installer engine. GitHub Actio
 
 ## Preserved original behavior
 
-The original application folder remains the resource root, so tracker profiles, render models, icons, sounds, localization, settings, custom poses, named-pipe UI behavior, and SteamVR dashboard renderer remain available. The bridge changes only platform hosting, OpenVR runtime discovery, and pose transport.
+The original application folder remains the resource root, so tracker profiles, render models, icons, sounds, localization, settings, custom poses, and named-pipe UI behavior remain available. The native companion mirrors the original UI rather than reimplementing it. The bridge changes only platform hosting, dashboard presentation, OpenVR runtime discovery, and pose transport.

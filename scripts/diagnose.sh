@@ -16,7 +16,8 @@ for path in \
     "$driver_root/bin/win64/driver_standable.dll" \
     "$driver_root/bin/win64/standable_bridge_host.exe" \
     "$driver_root/bin/win64/steam_api64.dll" \
-    "$driver_root/bin/linux64/driver_standable.so"; do
+    "$driver_root/bin/linux64/driver_standable.so" \
+    "$driver_root/bin/linux64/standable_dashboard_overlay"; do
     if [[ -f "$path" ]]; then
         echo "OK: $path"
     else
@@ -31,11 +32,31 @@ if [[ -f "$driver_root/bin/linux64/driver_standable.so" ]]; then
     file "$driver_root/bin/linux64/driver_standable.so"
     ldd "$driver_root/bin/linux64/driver_standable.so" 2>&1 | sed 's/^/  /'
 fi
+if [[ -f "$driver_root/bin/linux64/standable_dashboard_overlay" ]]; then
+    file "$driver_root/bin/linux64/standable_dashboard_overlay"
+    ldd "$driver_root/bin/linux64/standable_dashboard_overlay" 2>&1 | sed 's/^/  /'
+    "$driver_root/bin/linux64/standable_dashboard_overlay" --self-test 2>&1 | sed 's/^/  /'
+fi
+echo
+
+echo "Desktop session: XDG_SESSION_TYPE=${XDG_SESSION_TYPE:-<unset>} DISPLAY=${DISPLAY:-<unset>} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-<unset>}"
+for library in libX11.so.6 libXcomposite.so.1; do
+    if ldconfig -p 2>/dev/null | grep -Fq "$library"; then
+        echo "OK: dashboard capture runtime: $library"
+    else
+        echo "MISSING: dashboard capture runtime: $library"
+    fi
+done
 echo
 
 steamvr_root="$(bash "$script_dir/find-steamvr.sh" 2>/dev/null || true)"
 if [[ -n "$steamvr_root" ]]; then
     echo "SteamVR: $steamvr_root"
+    if [[ -f "$steamvr_root/bin/linux64/vrclient.so" ]]; then
+        echo "OK: native SteamVR client: $steamvr_root/bin/linux64/vrclient.so"
+    else
+        echo "MISSING: native SteamVR client: $steamvr_root/bin/linux64/vrclient.so"
+    fi
     if standable_select_runner "$steamvr_root" 2>/dev/null; then
         echo "Runner: $STANDABLE_RUNNER_KIND ($STANDABLE_RUNNER_PATH)"
         data_root="${XDG_DATA_HOME:-$HOME/.local/share}/standable-linux-bridge"
@@ -105,6 +126,14 @@ if [[ -f "$state_root/ui.log" ]]; then
     fi
 else
     echo "  No UI log yet."
+fi
+
+echo
+echo "Native dashboard log: $state_root/dashboard.log"
+if [[ -f "$state_root/dashboard.log" ]]; then
+    tail -n 120 "$state_root/dashboard.log" | sed 's/^/  /'
+else
+    echo "  No native dashboard log yet. Restart SteamVR after installing this version."
 fi
 
 for log in \

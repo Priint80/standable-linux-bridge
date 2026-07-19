@@ -4,14 +4,17 @@ set -euo pipefail
 root="${1:?usage: verify-artifacts.sh /path/to/overlay-or-driver-root [--integrated]}"
 mode="${2:-}"
 native="$root/bin/linux64/driver_standable.so"
+dashboard="$root/bin/linux64/standable_dashboard_overlay"
 helper="$root/bin/win64/standable_bridge_host.exe"
 steam_api_bridge="$root/bin/win64/steam_api64.dll"
 
 [[ -f "$native" ]] || { echo "missing $native" >&2; exit 1; }
+[[ -x "$dashboard" ]] || { echo "missing executable $dashboard" >&2; exit 1; }
 [[ -f "$helper" ]] || { echo "missing $helper" >&2; exit 1; }
 [[ -f "$steam_api_bridge" ]] || { echo "missing $steam_api_bridge" >&2; exit 1; }
 [[ -f "$root/VERSION" ]] || { echo "missing VERSION" >&2; exit 1; }
 [[ -f "$root/README-LINUX.md" ]] || { echo "missing README-LINUX.md" >&2; exit 1; }
+[[ -f "$root/THIRD_PARTY_NOTICES.md" ]] || { echo "missing THIRD_PARTY_NOTICES.md" >&2; exit 1; }
 for script in find-steamvr.sh runtime-common.sh enable-dashboard.sh standable-bridge-launcher.sh install.sh update.sh uninstall.sh diagnose.sh bridge-installer.sh; do
     [[ -x "$root/scripts/$script" ]] || { echo "missing executable scripts/$script" >&2; exit 1; }
     bash -n "$root/scripts/$script"
@@ -24,6 +27,9 @@ if [[ "$(nm -D --defined-only "$native" | awk '{print $3}')" != "HmdDriverFactor
     exit 1
 fi
 ldd "$native" >/dev/null
+file "$dashboard" | grep -q 'ELF 64-bit.*x86-64'
+ldd "$dashboard" | grep -qv 'not found'
+"$dashboard" --self-test >/dev/null
 file "$helper" | grep -q 'PE32+ executable.*x86-64'
 file "$steam_api_bridge" | grep -q 'PE32+ executable.*x86-64'
 objdump -p "$helper" | grep -q 'DLL Name: WS2_32.dll'
@@ -54,4 +60,4 @@ if [[ "$mode" == "--integrated" ]]; then
         "$root/Standable.exe" | sha256sum --check --status
 fi
 
-echo "PASS: Linux bridge artifacts, exports, dependencies, scripts, and layout"
+echo "PASS: Linux driver, native dashboard companion, bridge artifacts, dependencies, scripts, and layout"

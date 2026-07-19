@@ -8,6 +8,7 @@ Requirements:
 
 - Linux x86-64 and native SteamVR
 - glibc 2.34 or newer with a current libstdc++ runtime
+- `libX11`, with `libXcomposite` recommended for reliable obscured-window capture
 - Steam running and signed in to the account that owns Standable
 - Proton Experimental or Proton Hotfix installed through Steam
 - the original Standable 3.0.3 Steam installation
@@ -20,7 +21,7 @@ Requirements:
    ./scripts/install.sh
    ```
 
-4. Start SteamVR. The bridge launches the original Standable UI automatically, and Standable appears as a dashboard tab. Proton's private prefix can take longer to initialize on the first launch.
+4. Start SteamVR. The bridge launches the original Standable UI and native dashboard companion automatically, and Standable appears as a dashboard tab. Proton's private prefix can take longer to initialize on the first launch.
 
 The completed folder should include:
 
@@ -30,7 +31,9 @@ Standable Full Body Estimation/
 ├── driver.vrdrivermanifest
 ├── VERSION
 ├── bin/
-│   ├── linux64/driver_standable.so
+│   ├── linux64/
+│   │   ├── driver_standable.so
+│   │   └── standable_dashboard_overlay
 │   └── win64/
 │       ├── driver_standable.dll
 │       ├── standable_bridge_host.exe
@@ -44,7 +47,9 @@ The overlay does not replace `driver_standable.dll`, `Standable.exe`, resources,
 
 ## SteamVR dashboard
 
-Standable 3.0.3 already contains its own SteamVR dashboard renderer. The bridge passes the native SteamVR runtime, config, and log locations into the private Proton prefix so the unchanged UI can connect through `openvr_api.dll`. Installation also enables the existing **Show in SteamVR Dashboard** setting, preserving a timestamped settings backup if it needed to change the value.
+The bridge no longer depends on Standable's Windows dashboard renderer successfully crossing Proton. `standable_dashboard_overlay` is a native Linux OpenVR application: it creates a real SteamVR dashboard tab, captures the unchanged Standable window through X11/XComposite, submits RGBA frames to SteamVR, and forwards controller pointer events to the window. The original UI remains responsible for all controls and settings.
+
+On a Wayland desktop, Proton normally presents the Windows UI through XWayland, which this companion can capture without a screen-sharing prompt. A native-Wayland Wine window cannot be duplicated silently through a portable Wayland API; if you explicitly enabled Wine's native Wayland driver, switch that app back to XWayland for this version.
 
 To enable that setting again manually:
 
@@ -52,7 +57,7 @@ To enable that setting again manually:
 ./scripts/enable-dashboard.sh
 ```
 
-Close and restart SteamVR after changing it. If the tab is missing, run `./scripts/diagnose.sh`; its report now shows the source and Proton OpenVR path files, `vrclient_x64.dll`, the dashboard setting, and relevant UI log lines.
+Close and restart SteamVR after changing it. If the tab is missing, run `./scripts/diagnose.sh`; its report shows native `vrclient.so`, X11 capture libraries, the dashboard companion binary, and the dedicated dashboard log.
 
 ## Update
 
@@ -77,6 +82,7 @@ Bridge logs are stored at:
 ```text
 ~/.local/state/standable-linux-bridge/bridge.log
 ~/.local/state/standable-linux-bridge/ui.log
+~/.local/state/standable-linux-bridge/dashboard.log
 ```
 
 Useful overrides:
@@ -86,7 +92,7 @@ STEAMVR_ROOT=/custom/path/to/SteamVR ./scripts/install.sh
 STANDABLE_PROTON="/path/to/Proton - Experimental/proton" ./scripts/install.sh
 ```
 
-The runner override must also be present in SteamVR's environment when it starts. Set `STANDABLE_AUTOSTART_UI=0` in SteamVR's environment to disable automatic UI startup.
+The runner override must also be present in SteamVR's environment when it starts. Set `STANDABLE_AUTOSTART_UI=0` to disable automatic UI startup, or `STANDABLE_AUTOSTART_DASHBOARD=0` to disable only the native dashboard companion. `STANDABLE_DASHBOARD_FPS=20` controls its capture rate (1–60).
 
 To unregister the driver without deleting files or settings:
 

@@ -236,7 +236,9 @@ fi
 required_overlay=(
     "VERSION"
     "README-LINUX.md"
+    "THIRD_PARTY_NOTICES.md"
     "bin/linux64/driver_standable.so"
+    "bin/linux64/standable_dashboard_overlay"
     "bin/win64/standable_bridge_host.exe"
     "bin/win64/steam_api64.dll"
     "scripts/install.sh"
@@ -272,7 +274,9 @@ install_atomic() {
 bridge_files=(
     "VERSION"
     "README-LINUX.md"
+    "THIRD_PARTY_NOTICES.md"
     "bin/linux64/driver_standable.so"
+    "bin/linux64/standable_dashboard_overlay"
     "bin/win64/standable_bridge_host.exe"
     "bin/win64/steam_api64.dll"
 )
