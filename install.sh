@@ -61,8 +61,9 @@ add_steam_root() {
 }
 
 discover_standable_root() {
-    local candidate vdf line path
-    for candidate in "$PWD" "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"; do
+    local candidate vdf line path checkout_parent
+    checkout_parent="$(cd -- "$installer_root/.." && pwd -P)"
+    for candidate in "$PWD" "$installer_root" "$checkout_parent"; do
         if is_standable_root "$candidate"; then
             printf '%s\n' "$candidate"
             return 0

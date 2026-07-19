@@ -13,6 +13,7 @@ log="$temporary/runner.log"
 registry_log="$temporary/registry.log"
 installer_tree="$temporary/installer"
 remote_installer_tree="$temporary/remote-installer"
+source_checkout="$driver_root/standable-linux-bridge"
 curl_log="$temporary/curl.log"
 
 mkdir -p "$driver_root" "$steamvr_root/bin" "$steam_root/legacycompat" "$(dirname -- "$runner")"
@@ -91,6 +92,17 @@ PATH="$remote_installer_tree/bin:$PATH" \
 grep -q '/releases/latest/download/Standable-Linux-Bridge-Overlay.zip' "$curl_log"
 grep -q '/main/dist/Standable-Linux-Bridge-Overlay.zip' "$curl_log"
 
+mkdir -p "$source_checkout/scripts" "$source_checkout/dist"
+cp install.sh "$source_checkout/install.sh"
+cp scripts/update.sh "$source_checkout/scripts/update.sh"
+cp "$installer_tree/dist/Standable-Linux-Bridge-Overlay.zip" "$source_checkout/dist/Standable-Linux-Bridge-Overlay.zip"
+cp "$installer_tree/dist/SHA256SUMS" "$source_checkout/dist/SHA256SUMS"
+chmod 0755 "$source_checkout/install.sh" "$source_checkout/scripts/update.sh"
+(
+    cd -- "$source_checkout"
+    bash ./scripts/update.sh --no-register
+)
+
 bash "$driver_root/scripts/update.sh" \
     --overlay-dir "$overlay" \
     --no-register
@@ -98,6 +110,6 @@ bash "$driver_root/scripts/uninstall.sh" >/dev/null
 grep -q "args=<adddriver><$driver_root>" "$registry_log"
 grep -q "args=<removedriver><$driver_root>" "$registry_log"
 backup_count="$(find "$XDG_STATE_HOME/standable-linux-bridge/backups" -mindepth 1 -maxdepth 1 -type d | wc -l)"
-((backup_count == 3))
+((backup_count == 4))
 
-echo "PASS: Proton/OpenVR setup, dashboard enablement, prefix sharing, UI launch, bundled/repository install, update, and registration"
+echo "PASS: Proton/OpenVR setup, dashboard enablement, source/installed updates, UI launch, bundled/repository install, and registration"

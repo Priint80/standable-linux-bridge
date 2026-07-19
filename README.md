@@ -36,11 +36,13 @@ This repository is public, so first installs and later updates need no GitHub au
 
 ## Update
 
-From the installed **Standable Full Body Estimation** folder:
+From the installed **Standable Full Body Estimation** folder, or from a source checkout cloned inside that folder:
 
 ```bash
 ./scripts/update.sh
 ```
+
+The source checkout automatically uses its top-level installer. The installed copy uses its packaged updater engine.
 
 Every install or update backs up replaced bridge files under:
 
@@ -92,7 +94,7 @@ Release products:
 
 ```text
 build/Standable-Linux-Bridge-Overlay.zip
-build/Standable-Linux-Bridge-Source-v1.2.0.zip
+build/Standable-Linux-Bridge-Source-v1.2.1.zip
 ```
 
 `make test` covers OpenVR factory negotiation, authenticated loopback transport, provider initialization, tracker registration/properties/pose relay, Proton selection, OpenVR runtime handoff, dashboard enablement, prefix setup, Steam-client discovery, UI launch, install, update, and driver registration. `make verify` checks binary architectures, exports, dependencies, scripts, and overlay layout.
