@@ -381,6 +381,13 @@ std::string lowercase(std::string value) {
     return value;
 }
 
+[[nodiscard]] bool is_bridge_helper_window(std::string_view title, std::string_view class_name) {
+    const std::string identity = lowercase(std::string(title) + "\n" + std::string(class_name));
+    return identity.find("standable_bridge_host") != std::string::npos ||
+           identity.find("standable-linux-bridge") != std::string::npos ||
+           identity.find("standable_dashboard_overlay") != std::string::npos;
+}
+
 [[nodiscard]] std::uint8_t channel_from_pixel(unsigned long pixel, unsigned long mask) {
     if (mask == 0UL) {
         return 0U;
@@ -705,6 +712,9 @@ private:
 
                 const std::string title = window_title(child);
                 const std::string class_name = window_class(child);
+                if (is_bridge_helper_window(title, class_name)) {
+                    continue;
+                }
                 const std::string title_lower = lowercase(title);
                 const std::string class_lower = lowercase(class_name);
                 int score = 0;
@@ -1231,6 +1241,10 @@ private:
 int run_self_test() {
     bool passed = true;
     passed &= lowercase("StAnDaBlE.EXE") == "standable.exe";
+    passed &= is_bridge_helper_window(
+        R"(Z:\Standable Full Body Estimation\bin\win64\standable_bridge_host.exe)",
+        "steam_app_2370570/steam_app_2370570");
+    passed &= !is_bridge_helper_window("Standable v3.0.3", "steam_app_2370570/steam_app_2370570");
     passed &= channel_from_pixel(0x00FF0000UL, 0x00FF0000UL) == 255U;
     passed &= channel_from_pixel(0x0000FF00UL, 0x0000FF00UL) == 255U;
     passed &= channel_from_pixel(0x000000FFUL, 0x000000FFUL) == 255U;
@@ -1307,6 +1321,7 @@ int run_dashboard(const Arguments& arguments) {
 int main(int argc, char** argv) {
     std::signal(SIGINT, handle_signal);
     std::signal(SIGTERM, handle_signal);
+    std::signal(SIGHUP, SIG_IGN);
     const std::optional<Arguments> arguments = parse_arguments(argc, argv);
     if (!arguments.has_value()) {
         print_usage();

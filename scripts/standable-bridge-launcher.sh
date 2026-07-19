@@ -100,32 +100,38 @@ if [[ "${STANDABLE_AUTOSTART_UI:-1}" != "0" ]]; then
     echo "$!" >"$state_root/ui-launcher.pid"
 fi
 
-dashboard_pid=""
-cleanup_dashboard() {
-    if [[ -n "$dashboard_pid" ]] && kill -0 "$dashboard_pid" 2>/dev/null; then
-        kill "$dashboard_pid" 2>/dev/null || true
-        wait "$dashboard_pid" 2>/dev/null || true
-    fi
-}
-trap cleanup_dashboard EXIT
-
 if [[ "${STANDABLE_AUTOSTART_DASHBOARD:-1}" != "0" ]]; then
     dashboard_fps="${STANDABLE_DASHBOARD_FPS:-20}"
     if [[ ! "$dashboard_fps" =~ ^[1-9][0-9]*$ ]] || ((dashboard_fps > 60)); then
         echo "WARNING: invalid STANDABLE_DASHBOARD_FPS=$dashboard_fps; using 20"
         dashboard_fps=20
     fi
+
+    dashboard_parent_pid="${STANDABLE_DASHBOARD_PARENT_PID:-}"
+    dashboard_parent_source="environment override"
+    if [[ ! "$dashboard_parent_pid" =~ ^[1-9][0-9]*$ ]]; then
+        dashboard_parent_pid="$(pgrep -o -x vrserver 2>/dev/null || true)"
+        dashboard_parent_source="vrserver"
+    fi
+    if [[ ! "$dashboard_parent_pid" =~ ^[1-9][0-9]*$ ]]; then
+        dashboard_parent_pid="$$"
+        dashboard_parent_source="bridge launcher fallback"
+        echo "WARNING: vrserver PID was not found; dashboard lifetime falls back to the bridge launcher"
+    fi
+    echo "Dashboard lifetime parent: pid=$dashboard_parent_pid ($dashboard_parent_source)"
+
     (
         exec 9>&-
         exec 7>"$state_root/dashboard.lock"
         flock -n 7 || exit 0
-        printf '\n[%(%Y-%m-%d %H:%M:%S)T] native dashboard companion starting\n' -1
+        printf '\n[%(%Y-%m-%d %H:%M:%S)T] native dashboard companion starting; lifetime parent pid=%s\n' \
+            -1 "$dashboard_parent_pid"
         steamvr_library_path="$steamvr_root/bin/linux64:$steamvr_root/bin/linux64/qt/lib"
         export LD_LIBRARY_PATH="$steamvr_library_path${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
         exec "$dashboard" \
             --steamvr-root "$steamvr_root" \
             --driver-root "$driver_root" \
-            --parent-pid "$$" \
+            --parent-pid "$dashboard_parent_pid" \
             --fps "$dashboard_fps"
     ) >>"$dashboard_log" 2>&1 &
     dashboard_pid="$!"

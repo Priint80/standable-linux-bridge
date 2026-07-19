@@ -3,7 +3,19 @@ set -euo pipefail
 
 overlay="${1:?usage: script_runtime.sh /path/to/overlay}"
 temporary="$(mktemp -d /tmp/standable-bridge-test.XXXXXX)"
-trap 'rm -rf "$temporary"' EXIT
+dashboard_parent_pid=""
+dashboard_process_pid=""
+cleanup() {
+    if [[ -n "$dashboard_parent_pid" ]]; then
+        kill "$dashboard_parent_pid" 2>/dev/null || true
+    fi
+    if [[ -n "$dashboard_process_pid" ]]; then
+        kill "$dashboard_process_pid" 2>/dev/null || true
+        wait "$dashboard_process_pid" 2>/dev/null || true
+    fi
+    rm -rf "$temporary"
+}
+trap cleanup EXIT
 
 driver_root="$temporary/Standable Full Body Estimation"
 steam_root="$temporary/Steam Library"
@@ -37,6 +49,10 @@ export STANDABLE_TEST_LOG="$log"
 export XDG_STATE_HOME="$temporary/state"
 export XDG_DATA_HOME="$temporary/data"
 
+sleep 30 &
+dashboard_parent_pid="$!"
+export STANDABLE_DASHBOARD_PARENT_PID="$dashboard_parent_pid"
+
 bash "$driver_root/scripts/standable-bridge-launcher.sh" \
     --session 99112233 --native-port 42470 --helper-port 42471
 
@@ -55,6 +71,23 @@ grep -Fq "vr_override=$steamvr_root" "$log"
 grep -Fq "vr_paths=$XDG_DATA_HOME/standable-linux-bridge/openvr/openvrpaths.vrpath" "$log"
 [[ -f "$XDG_STATE_HOME/standable-linux-bridge/dashboard.log" ]]
 grep -q 'native dashboard companion starting' "$XDG_STATE_HOME/standable-linux-bridge/dashboard.log"
+dashboard_process_pid="$(cat "$XDG_STATE_HOME/standable-linux-bridge/dashboard.pid")"
+kill -0 "$dashboard_process_pid"
+kill "$dashboard_parent_pid"
+wait "$dashboard_parent_pid" 2>/dev/null || true
+dashboard_parent_pid=""
+for attempt in {1..400}; do
+    if ! kill -0 "$dashboard_process_pid" 2>/dev/null; then
+        break
+    fi
+    sleep 0.01
+done
+if kill -0 "$dashboard_process_pid" 2>/dev/null; then
+    echo "dashboard companion survived its lifetime parent" >&2
+    exit 1
+fi
+wait "$dashboard_process_pid" 2>/dev/null || true
+dashboard_process_pid=""
 grep -Eq '"Show in SteamVR Dashboard"[[:space:]]*:[[:space:]]*true' "$driver_root/saves/settings.json"
 dashboard_backup_count="$(find "$XDG_STATE_HOME/standable-linux-bridge/settings-backups" -type f -name 'settings-*.json' | wc -l)"
 ((dashboard_backup_count == 1))

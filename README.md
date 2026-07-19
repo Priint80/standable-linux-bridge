@@ -96,7 +96,7 @@ Release products:
 
 ```text
 build/Standable-Linux-Bridge-Overlay.zip
-build/Standable-Linux-Bridge-Source-v1.3.0.zip
+build/Standable-Linux-Bridge-Source-v1.3.1.zip
 ```
 
 `make test` covers OpenVR factory negotiation, authenticated loopback transport, provider initialization, tracker registration/properties/pose relay, the native dashboard companion, Proton selection, OpenVR runtime handoff, prefix setup, Steam-client discovery, UI launch, install, update, and driver registration. `make verify` checks binary architectures, exports, dependencies, scripts, and overlay layout.
