@@ -1,0 +1,6 @@
+LIBRARY steam_api64
+EXPORTS
+    SteamAPI_GetHSteamUser
+    SteamInternal_ContextInit
+    SteamInternal_FindOrCreateUserInterface
+    SteamInternal_SteamAPI_Init

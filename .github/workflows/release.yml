@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - VERSION
+      - src/**
+      - include/**
+      - scripts/**
+      - packaging/**
+      - install.sh
+      - Makefile
+      - .github/workflows/release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Zig cross-compiler
+        run: npm install --no-save @oven/zig-linux-x64@0.12.0-dev.1286
+
+      - name: Build and test release
+        env:
+          ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig-global-cache
+          ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/build/zig-cache
+        run: make release test verify ZIG="$GITHUB_WORKSPACE/node_modules/@oven/zig-linux-x64/zig"
+
+      - name: Write checksums
+        run: |
+          cd build
+          sha256sum Standable-Linux-Bridge-Overlay.zip Standable-Linux-Bridge-Source-v*.zip > SHA256SUMS
+
+      - name: Create versioned release once
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(tr -d '\r\n' < VERSION)"
+          tag="v$version"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; leaving it unchanged."
+            exit 0
+          fi
+          gh release create "$tag" \
+            --target "$GITHUB_SHA" \
+            --title "Standable Linux Bridge $tag" \
+            --generate-notes \
+            build/Standable-Linux-Bridge-Overlay.zip \
+            build/Standable-Linux-Bridge-Source-v*.zip \
+            build/SHA256SUMS

@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Zig cross-compiler
+        run: npm install --no-save @oven/zig-linux-x64@0.12.0-dev.1286
+
+      - name: Build and test
+        env:
+          ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig-global-cache
+          ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/build/zig-cache
+        run: make all ZIG="$GITHUB_WORKSPACE/node_modules/@oven/zig-linux-x64/zig"
+
+      - name: Package release artifacts
+        env:
+          ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig-global-cache
+          ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/build/zig-cache
+        run: make release ZIG="$GITHUB_WORKSPACE/node_modules/@oven/zig-linux-x64/zig"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: standable-linux-bridge
+          path: |
+            build/Standable-Linux-Bridge-Overlay.zip
+            build/Standable-Linux-Bridge-Source-v*.zip
+          if-no-files-found: error
