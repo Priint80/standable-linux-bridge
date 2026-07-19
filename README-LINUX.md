@@ -47,11 +47,11 @@ The overlay does not replace `driver_standable.dll`, `Standable.exe`, resources,
 
 ## SteamVR dashboard
 
-The bridge no longer depends on Standable's Windows dashboard renderer successfully crossing Proton. `standable_dashboard_overlay` is a native Linux OpenVR application: it creates a real SteamVR dashboard tab, captures the unchanged Standable window through X11/XComposite, submits RGBA frames to SteamVR, and forwards controller pointer events to the window. The original UI remains responsible for all controls and settings.
+The bridge no longer depends on Standable's Windows dashboard renderer successfully crossing Proton. `standable_dashboard_overlay` is a native Linux OpenVR application: it creates a real SteamVR dashboard tab, captures the unchanged Standable window through X11/XComposite, uploads frames through a persistent OpenGL texture, and forwards controller pointer events to the window. The original UI remains responsible for all controls and settings. The installer disables Standable's original Windows dashboard preference so SteamVR shows one functional Standable tab instead of a second blank entry.
 
 On a Wayland desktop, Proton normally presents the Windows UI through XWayland, which this companion can capture without a screen-sharing prompt. A native-Wayland Wine window cannot be duplicated silently through a portable Wayland API; if you explicitly enabled Wine's native Wayland driver, switch that app back to XWayland for this version.
 
-To enable that setting again manually:
+To reapply the native dashboard configuration manually:
 
 ```bash
 ./scripts/enable-dashboard.sh

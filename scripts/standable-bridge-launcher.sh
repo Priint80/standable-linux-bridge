@@ -55,12 +55,11 @@ echo "SteamVR: $steamvr_root"
 echo "Runner: $STANDABLE_RUNNER_KIND ($STANDABLE_RUNNER_PATH)"
 echo "OpenVR paths: $STANDABLE_OPENVR_PATHS"
 
-dashboard_marker="$data_root/.dashboard-setting-applied"
-if [[ ! -f "$dashboard_marker" && -f "$driver_root/saves/settings.json" ]]; then
+if [[ -f "$driver_root/saves/settings.json" ]]; then
     if bash "$script_dir/enable-dashboard.sh" --quiet; then
-        touch "$dashboard_marker"
+        :
     else
-        echo "WARNING: The Standable dashboard preference could not be enabled automatically."
+        echo "WARNING: The duplicate Windows dashboard entry could not be disabled automatically."
     fi
 fi
 

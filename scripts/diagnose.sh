@@ -40,11 +40,11 @@ fi
 echo
 
 echo "Desktop session: XDG_SESSION_TYPE=${XDG_SESSION_TYPE:-<unset>} DISPLAY=${DISPLAY:-<unset>} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-<unset>}"
-for library in libX11.so.6 libXcomposite.so.1; do
+for library in libX11.so.6 libXcomposite.so.1 libGL.so.1; do
     if ldconfig -p 2>/dev/null | grep -Fq "$library"; then
-        echo "OK: dashboard capture runtime: $library"
+        echo "OK: dashboard capture/texture runtime: $library"
     else
-        echo "MISSING: dashboard capture runtime: $library"
+        echo "MISSING: dashboard capture/texture runtime: $library"
     fi
 done
 echo
@@ -97,9 +97,9 @@ settings="$driver_root/saves/settings.json"
 if [[ ! -f "$settings" ]]; then
     echo "Dashboard setting: MISSING ($settings)"
 elif grep -Eq '"Show in SteamVR Dashboard"[[:space:]]*:[[:space:]]*true' "$settings"; then
-    echo "Dashboard setting: enabled"
+    echo "Dashboard setting: duplicate Windows dashboard entry is enabled (run ./scripts/enable-dashboard.sh)"
 elif grep -Eq '"Show in SteamVR Dashboard"[[:space:]]*:[[:space:]]*false' "$settings"; then
-    echo "Dashboard setting: disabled"
+    echo "Dashboard setting: native Linux dashboard mode configured"
 else
     echo "Dashboard setting: key not found"
 fi

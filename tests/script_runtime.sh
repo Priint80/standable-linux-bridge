@@ -31,7 +31,7 @@ curl_log="$temporary/curl.log"
 mkdir -p "$driver_root" "$steamvr_root/bin" "$steam_root/legacycompat" "$(dirname -- "$runner")"
 cp -a "$overlay/." "$driver_root/"
 mkdir -p "$driver_root/saves"
-printf '{\n  "Show in SteamVR Dashboard": false\n}\n' >"$driver_root/saves/settings.json"
+printf '{\n  "Show in SteamVR Dashboard": true\n}\n' >"$driver_root/saves/settings.json"
 touch "$driver_root/Standable.exe" \
     "$driver_root/openvr_api.dll" \
     "$driver_root/driver.vrdrivermanifest" \
@@ -88,7 +88,7 @@ if kill -0 "$dashboard_process_pid" 2>/dev/null; then
 fi
 wait "$dashboard_process_pid" 2>/dev/null || true
 dashboard_process_pid=""
-grep -Eq '"Show in SteamVR Dashboard"[[:space:]]*:[[:space:]]*true' "$driver_root/saves/settings.json"
+grep -Eq '"Show in SteamVR Dashboard"[[:space:]]*:[[:space:]]*false' "$driver_root/saves/settings.json"
 dashboard_backup_count="$(find "$XDG_STATE_HOME/standable-linux-bridge/settings-backups" -type f -name 'settings-*.json' | wc -l)"
 ((dashboard_backup_count == 1))
 

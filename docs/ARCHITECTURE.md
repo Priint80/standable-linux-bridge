@@ -14,7 +14,9 @@ Before Proton starts, the launcher writes a bridge-owned `openvrpaths.vrpath` co
 
 The companion follows the lifetime of `vrserver`, not the short-lived Proton launcher process. This keeps the dashboard handle alive when Proton hands the Windows helper off to Wine and returns from its launcher command.
 
-The companion discovers the Proton Standable window by its X11 title and class while explicitly excluding the headless `standable_bridge_host.exe` helper. It uses XComposite's named window pixmap when available and falls back to direct `XGetImage`. It converts and scales the image to at most 1280×720, then submits raw RGBA frames only while the Standable dashboard page is active. SteamVR mouse and scroll events are translated back into X11 events for the unchanged UI.
+The companion discovers the Proton Standable window by its X11 title and class while explicitly excluding the headless `standable_bridge_host.exe` helper. It uses XComposite's named window pixmap when available and falls back to direct `XGetImage`. It converts and scales the image to at most 1280×720, rejects transient blank captures, uploads frames into a persistent GLX/OpenGL texture, and submits that texture only while the Standable dashboard page is active. If GLX is unavailable, raw OpenVR image submissions are serialized using their asynchronous completion events so their backing buffers remain valid. SteamVR mouse and scroll events are translated back into X11 events for the unchanged UI.
+
+The original Windows `Show in SteamVR Dashboard` preference is forced off by the Linux launcher. The native companion owns the sole functional Standable tab; leaving the Windows preference enabled creates a second blank dashboard entry under Proton.
 
 This design intentionally targets X11/XWayland. Standard Wayland capture is permission-mediated and does not offer a portable silent API for duplicating an arbitrary application window. Proton's default Linux window path is XWayland; compositor-specific screencopy or portal capture can be added later without changing the dashboard-facing OpenVR layer.
 

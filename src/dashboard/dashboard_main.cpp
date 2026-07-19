@@ -185,6 +185,54 @@ inline constexpr int CompositeRedirectAutomatic = 0;
 
 }  // namespace x11
 
+namespace glx {
+
+using Context = void*;
+using FBConfig = void*;
+using Drawable = x11::XID;
+using Pbuffer = x11::XID;
+
+inline constexpr int None = 0;
+inline constexpr int XRenderable = 0x8012;
+inline constexpr int DrawableType = 0x8010;
+inline constexpr int RenderType = 0x8011;
+inline constexpr int PbufferBit = 0x00000004;
+inline constexpr int RgbaBit = 0x00000001;
+inline constexpr int RedSize = 8;
+inline constexpr int GreenSize = 9;
+inline constexpr int BlueSize = 10;
+inline constexpr int AlphaSize = 11;
+inline constexpr int PbufferHeight = 0x8040;
+inline constexpr int PbufferWidth = 0x8041;
+inline constexpr int RgbaType = 0x8014;
+
+}  // namespace glx
+
+namespace gl {
+
+using Enum = unsigned int;
+using Int = int;
+using Size = int;
+using UInt = unsigned int;
+
+inline constexpr Enum NoError = 0U;
+inline constexpr Enum Texture2D = 0x0DE1U;
+inline constexpr Enum TextureMinFilter = 0x2801U;
+inline constexpr Enum TextureMagFilter = 0x2800U;
+inline constexpr Enum TextureWrapS = 0x2802U;
+inline constexpr Enum TextureWrapT = 0x2803U;
+inline constexpr Enum TextureBaseLevel = 0x813CU;
+inline constexpr Enum TextureMaxLevel = 0x813DU;
+inline constexpr Enum Linear = 0x2601U;
+inline constexpr Enum ClampToEdge = 0x812FU;
+inline constexpr Enum UnpackAlignment = 0x0CF5U;
+inline constexpr Enum UnpackRowLength = 0x0CF2U;
+inline constexpr Enum Rgba = 0x1908U;
+inline constexpr Enum Rgba8 = 0x8058U;
+inline constexpr Enum UnsignedByte = 0x1401U;
+
+}  // namespace gl
+
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -409,6 +457,303 @@ struct CapturedFrame {
     std::vector<std::uint8_t> rgba;
 };
 
+[[nodiscard]] bool is_effectively_blank(const CapturedFrame& frame) {
+    const std::size_t pixel_count = frame.rgba.size() / 4U;
+    if (pixel_count == 0U) {
+        return true;
+    }
+    const std::size_t minimum_visible_pixels = std::min<std::size_t>(
+        64U, std::max<std::size_t>(4U, pixel_count / 20000U));
+    std::size_t visible_pixels = 0U;
+    for (std::size_t offset = 0U; offset + 3U < frame.rgba.size(); offset += 4U) {
+        const unsigned int brightness = static_cast<unsigned int>(frame.rgba[offset]) +
+                                        static_cast<unsigned int>(frame.rgba[offset + 1U]) +
+                                        static_cast<unsigned int>(frame.rgba[offset + 2U]);
+        if (brightness > 12U && ++visible_pixels >= minimum_visible_pixels) {
+            return false;
+        }
+    }
+    return true;
+}
+
+class OpenGlTextureUploader {
+public:
+    OpenGlTextureUploader() = default;
+    OpenGlTextureUploader(const OpenGlTextureUploader&) = delete;
+    OpenGlTextureUploader& operator=(const OpenGlTextureUploader&) = delete;
+
+    ~OpenGlTextureUploader() {
+        reset();
+    }
+
+    bool initialize() {
+        if (ready_) {
+            return true;
+        }
+        reset();
+        if (!xlib_.open("libX11.so.6")) {
+            std::cerr << "dashboard: OpenGL transport cannot load libX11.so.6: " << xlib_.error() << '\n';
+            return false;
+        }
+        if (!gl_library_.open("libGL.so.1")) {
+            std::cerr << "dashboard: OpenGL transport cannot load libGL.so.1: " << gl_library_.error() << '\n';
+            return false;
+        }
+        if (!load_symbols()) {
+            std::cerr << "dashboard: OpenGL transport is missing required GLX/OpenGL symbols\n";
+            reset();
+            return false;
+        }
+        set_error_handler_(ignore_x_error);
+
+        display_ = open_display_(nullptr);
+        if (display_ == nullptr) {
+            std::cerr << "dashboard: OpenGL transport cannot open DISPLAY="
+                      << (std::getenv("DISPLAY") != nullptr ? std::getenv("DISPLAY") : "<unset>") << '\n';
+            reset();
+            return false;
+        }
+
+        const int attributes[]{
+            glx::XRenderable, x11::True,
+            glx::DrawableType, glx::PbufferBit,
+            glx::RenderType, glx::RgbaBit,
+            glx::RedSize, 8,
+            glx::GreenSize, 8,
+            glx::BlueSize, 8,
+            glx::AlphaSize, 8,
+            glx::None,
+        };
+        int config_count = 0;
+        glx::FBConfig* configs = choose_fb_config_(display_, default_screen_(display_), attributes, &config_count);
+        if (configs == nullptr || config_count <= 0) {
+            std::cerr << "dashboard: GLX has no RGBA pbuffer framebuffer configuration\n";
+            if (configs != nullptr) {
+                free_memory_(configs);
+            }
+            reset();
+            return false;
+        }
+
+        const int pbuffer_attributes[]{
+            glx::PbufferWidth, 1,
+            glx::PbufferHeight, 1,
+            glx::None,
+        };
+        for (int index = 0; index < config_count && context_ == nullptr; ++index) {
+            glx::Context candidate_context = create_new_context_(
+                display_, configs[index], glx::RgbaType, nullptr, x11::True);
+            if (candidate_context == nullptr) {
+                candidate_context = create_new_context_(
+                    display_, configs[index], glx::RgbaType, nullptr, x11::False);
+            }
+            if (candidate_context == nullptr) {
+                continue;
+            }
+            const glx::Pbuffer candidate_pbuffer = create_pbuffer_(display_, configs[index], pbuffer_attributes);
+            if (candidate_pbuffer == 0UL ||
+                make_context_current_(display_, candidate_pbuffer, candidate_pbuffer, candidate_context) == x11::False) {
+                if (candidate_pbuffer != 0UL) {
+                    destroy_pbuffer_(display_, candidate_pbuffer);
+                }
+                destroy_context_(display_, candidate_context);
+                continue;
+            }
+            context_ = candidate_context;
+            pbuffer_ = candidate_pbuffer;
+        }
+        free_memory_(configs);
+
+        if (context_ == nullptr || pbuffer_ == 0UL) {
+            std::cerr << "dashboard: GLX could not create a pbuffer rendering context\n";
+            reset();
+            return false;
+        }
+
+        gen_textures_(1, &texture_id_);
+        if (texture_id_ == 0U || get_error_() != gl::NoError) {
+            std::cerr << "dashboard: OpenGL texture allocation failed\n";
+            reset();
+            return false;
+        }
+        bind_texture_(gl::Texture2D, texture_id_);
+        tex_parameter_i_(gl::Texture2D, gl::TextureMinFilter, static_cast<gl::Int>(gl::Linear));
+        tex_parameter_i_(gl::Texture2D, gl::TextureMagFilter, static_cast<gl::Int>(gl::Linear));
+        tex_parameter_i_(gl::Texture2D, gl::TextureWrapS, static_cast<gl::Int>(gl::ClampToEdge));
+        tex_parameter_i_(gl::Texture2D, gl::TextureWrapT, static_cast<gl::Int>(gl::ClampToEdge));
+        tex_parameter_i_(gl::Texture2D, gl::TextureBaseLevel, 0);
+        tex_parameter_i_(gl::Texture2D, gl::TextureMaxLevel, 0);
+        bind_texture_(gl::Texture2D, 0U);
+        if (get_error_() != gl::NoError) {
+            std::cerr << "dashboard: OpenGL texture configuration failed\n";
+            reset();
+            return false;
+        }
+
+        texture_.handle = reinterpret_cast<void*>(static_cast<std::uintptr_t>(texture_id_));
+        texture_.eType = vr::TextureType_OpenGL;
+        texture_.eColorSpace = vr::ColorSpace_Gamma;
+        ready_ = true;
+        std::cout << "dashboard: OpenGL texture transport ready (GLX pbuffer, texture="
+                  << texture_id_ << ")\n";
+        return true;
+    }
+
+    bool upload(const CapturedFrame& frame) {
+        if (!ready_ || frame.rgba.empty() || frame.width == 0U || frame.height == 0U) {
+            return false;
+        }
+        if (make_context_current_(display_, pbuffer_, pbuffer_, context_) == x11::False) {
+            std::cerr << "dashboard: GLX context could not be made current for texture upload\n";
+            return false;
+        }
+        while (get_error_() != gl::NoError) {
+        }
+        bind_texture_(gl::Texture2D, texture_id_);
+        pixel_store_i_(gl::UnpackAlignment, 1);
+        pixel_store_i_(gl::UnpackRowLength, 0);
+        const gl::Size width = static_cast<gl::Size>(frame.width);
+        const gl::Size height = static_cast<gl::Size>(frame.height);
+        if (frame.width != width_ || frame.height != height_) {
+            tex_image_2d_(gl::Texture2D, 0, static_cast<gl::Int>(gl::Rgba8), width, height, 0,
+                          gl::Rgba, gl::UnsignedByte, frame.rgba.data());
+            width_ = frame.width;
+            height_ = frame.height;
+        } else {
+            tex_sub_image_2d_(gl::Texture2D, 0, 0, 0, width, height,
+                              gl::Rgba, gl::UnsignedByte, frame.rgba.data());
+        }
+        finish_();
+        const gl::Enum error = get_error_();
+        bind_texture_(gl::Texture2D, 0U);
+        if (error != gl::NoError) {
+            std::cerr << "dashboard: OpenGL frame upload failed with error 0x"
+                      << std::hex << error << std::dec << '\n';
+            return false;
+        }
+        return true;
+    }
+
+    [[nodiscard]] const vr::Texture_t* texture() const {
+        return ready_ ? &texture_ : nullptr;
+    }
+
+private:
+    using OpenDisplayFn = x11::Display* (*)(const char*);
+    using CloseDisplayFn = int (*)(x11::Display*);
+    using DefaultScreenFn = int (*)(x11::Display*);
+    using FreeFn = int (*)(void*);
+    using SetErrorHandlerFn = x11::ErrorHandler (*)(x11::ErrorHandler);
+    using ChooseFbConfigFn = glx::FBConfig* (*)(x11::Display*, int, const int*, int*);
+    using CreateNewContextFn = glx::Context (*)(x11::Display*, glx::FBConfig, int, glx::Context, x11::Bool);
+    using CreatePbufferFn = glx::Pbuffer (*)(x11::Display*, glx::FBConfig, const int*);
+    using DestroyPbufferFn = void (*)(x11::Display*, glx::Pbuffer);
+    using MakeContextCurrentFn = x11::Bool (*)(x11::Display*, glx::Drawable, glx::Drawable, glx::Context);
+    using DestroyContextFn = void (*)(x11::Display*, glx::Context);
+    using GenTexturesFn = void (*)(gl::Size, gl::UInt*);
+    using DeleteTexturesFn = void (*)(gl::Size, const gl::UInt*);
+    using BindTextureFn = void (*)(gl::Enum, gl::UInt);
+    using TexParameterIFn = void (*)(gl::Enum, gl::Enum, gl::Int);
+    using PixelStoreIFn = void (*)(gl::Enum, gl::Int);
+    using TexImage2DFn = void (*)(gl::Enum, gl::Int, gl::Int, gl::Size, gl::Size, gl::Int,
+                                  gl::Enum, gl::Enum, const void*);
+    using TexSubImage2DFn = void (*)(gl::Enum, gl::Int, gl::Int, gl::Int, gl::Size, gl::Size,
+                                     gl::Enum, gl::Enum, const void*);
+    using FinishFn = void (*)();
+    using GetErrorFn = gl::Enum (*)();
+
+    bool load_symbols() {
+        open_display_ = xlib_.symbol<OpenDisplayFn>("XOpenDisplay");
+        close_display_ = xlib_.symbol<CloseDisplayFn>("XCloseDisplay");
+        default_screen_ = xlib_.symbol<DefaultScreenFn>("XDefaultScreen");
+        free_memory_ = xlib_.symbol<FreeFn>("XFree");
+        set_error_handler_ = xlib_.symbol<SetErrorHandlerFn>("XSetErrorHandler");
+        choose_fb_config_ = gl_library_.symbol<ChooseFbConfigFn>("glXChooseFBConfig");
+        create_new_context_ = gl_library_.symbol<CreateNewContextFn>("glXCreateNewContext");
+        create_pbuffer_ = gl_library_.symbol<CreatePbufferFn>("glXCreatePbuffer");
+        destroy_pbuffer_ = gl_library_.symbol<DestroyPbufferFn>("glXDestroyPbuffer");
+        make_context_current_ = gl_library_.symbol<MakeContextCurrentFn>("glXMakeContextCurrent");
+        destroy_context_ = gl_library_.symbol<DestroyContextFn>("glXDestroyContext");
+        gen_textures_ = gl_library_.symbol<GenTexturesFn>("glGenTextures");
+        delete_textures_ = gl_library_.symbol<DeleteTexturesFn>("glDeleteTextures");
+        bind_texture_ = gl_library_.symbol<BindTextureFn>("glBindTexture");
+        tex_parameter_i_ = gl_library_.symbol<TexParameterIFn>("glTexParameteri");
+        pixel_store_i_ = gl_library_.symbol<PixelStoreIFn>("glPixelStorei");
+        tex_image_2d_ = gl_library_.symbol<TexImage2DFn>("glTexImage2D");
+        tex_sub_image_2d_ = gl_library_.symbol<TexSubImage2DFn>("glTexSubImage2D");
+        finish_ = gl_library_.symbol<FinishFn>("glFinish");
+        get_error_ = gl_library_.symbol<GetErrorFn>("glGetError");
+        return open_display_ != nullptr && close_display_ != nullptr && default_screen_ != nullptr &&
+               free_memory_ != nullptr && set_error_handler_ != nullptr &&
+               choose_fb_config_ != nullptr && create_new_context_ != nullptr &&
+               create_pbuffer_ != nullptr && destroy_pbuffer_ != nullptr && make_context_current_ != nullptr &&
+               destroy_context_ != nullptr && gen_textures_ != nullptr && delete_textures_ != nullptr &&
+               bind_texture_ != nullptr && tex_parameter_i_ != nullptr && pixel_store_i_ != nullptr &&
+               tex_image_2d_ != nullptr && tex_sub_image_2d_ != nullptr && finish_ != nullptr &&
+               get_error_ != nullptr;
+    }
+
+    void reset() {
+        if (display_ != nullptr && context_ != nullptr && make_context_current_ != nullptr) {
+            make_context_current_(display_, pbuffer_, pbuffer_, context_);
+            if (texture_id_ != 0U && delete_textures_ != nullptr) {
+                delete_textures_(1, &texture_id_);
+            }
+            make_context_current_(display_, 0UL, 0UL, nullptr);
+        }
+        texture_id_ = 0U;
+        if (display_ != nullptr && pbuffer_ != 0UL && destroy_pbuffer_ != nullptr) {
+            destroy_pbuffer_(display_, pbuffer_);
+        }
+        pbuffer_ = 0UL;
+        if (display_ != nullptr && context_ != nullptr && destroy_context_ != nullptr) {
+            destroy_context_(display_, context_);
+        }
+        context_ = nullptr;
+        if (display_ != nullptr && close_display_ != nullptr) {
+            close_display_(display_);
+        }
+        display_ = nullptr;
+        width_ = 0U;
+        height_ = 0U;
+        texture_ = {};
+        ready_ = false;
+        gl_library_ = SharedLibrary{};
+        xlib_ = SharedLibrary{};
+    }
+
+    SharedLibrary xlib_;
+    SharedLibrary gl_library_;
+    OpenDisplayFn open_display_{};
+    CloseDisplayFn close_display_{};
+    DefaultScreenFn default_screen_{};
+    FreeFn free_memory_{};
+    SetErrorHandlerFn set_error_handler_{};
+    ChooseFbConfigFn choose_fb_config_{};
+    CreateNewContextFn create_new_context_{};
+    CreatePbufferFn create_pbuffer_{};
+    DestroyPbufferFn destroy_pbuffer_{};
+    MakeContextCurrentFn make_context_current_{};
+    DestroyContextFn destroy_context_{};
+    GenTexturesFn gen_textures_{};
+    DeleteTexturesFn delete_textures_{};
+    BindTextureFn bind_texture_{};
+    TexParameterIFn tex_parameter_i_{};
+    PixelStoreIFn pixel_store_i_{};
+    TexImage2DFn tex_image_2d_{};
+    TexSubImage2DFn tex_sub_image_2d_{};
+    FinishFn finish_{};
+    GetErrorFn get_error_{};
+    x11::Display* display_{nullptr};
+    glx::Context context_{nullptr};
+    glx::Pbuffer pbuffer_{};
+    gl::UInt texture_id_{};
+    std::uint32_t width_{};
+    std::uint32_t height_{};
+    vr::Texture_t texture_{};
+    bool ready_{false};
+};
+
 class X11WindowCapture {
 public:
     X11WindowCapture() = default;
@@ -552,6 +897,16 @@ public:
             }
         }
         api_.destroy_image(image);
+        if (is_effectively_blank(frame)) {
+            ++blank_frame_count_;
+            if (blank_frame_count_ == 1U || blank_frame_count_ % 100U == 0U) {
+                std::cerr << "dashboard: discarded blank capture frame from window 0x"
+                          << std::hex << target_ << std::dec
+                          << " (count=" << blank_frame_count_ << ")\n";
+            }
+            return std::nullopt;
+        }
+        blank_frame_count_ = 0U;
         return frame;
     }
 
@@ -832,6 +1187,7 @@ private:
     int last_y_{};
     std::string title_;
     std::string class_name_;
+    std::uint32_t blank_frame_count_{};
 };
 
 class OpenVrClient {
@@ -1103,10 +1459,12 @@ public:
                                      main_handle_, vr::VROverlayFlags_MakeOverlaysInteractiveIfVisible, true),
                                  "SetOverlayFlag(interactive)");
 
-        const std::vector<std::uint8_t> waiting = create_placeholder(640U, 360U, false);
-        configured &= overlay_ok(overlay_, overlay_->SetOverlayRaw(main_handle_, const_cast<std::uint8_t*>(waiting.data()),
-                                                                   640U, 360U, 4U),
-                                 "SetOverlayRaw(waiting frame)");
+        waiting_frame_ = create_placeholder(640U, 360U, false);
+        const bool waiting_submitted = overlay_ok(
+            overlay_, overlay_->SetOverlayRaw(main_handle_, waiting_frame_.data(), 640U, 360U, 4U),
+            "SetOverlayRaw(waiting frame)");
+        configured &= waiting_submitted;
+        raw_in_flight_ = waiting_submitted;
 
         const std::optional<std::filesystem::path> thumbnail = find_thumbnail(driver_root_);
         if (thumbnail.has_value()) {
@@ -1127,33 +1485,62 @@ public:
         return overlay_->IsActiveDashboardOverlay(main_handle_);
     }
 
-    bool submit(CapturedFrame& frame) {
-        if (frame.rgba.empty()) {
+    bool submit_texture(const CapturedFrame& frame, const vr::Texture_t* texture) {
+        if (frame.rgba.empty() || texture == nullptr) {
             return false;
         }
-        const vr::EVROverlayError error = overlay_->SetOverlayRaw(main_handle_, frame.rgba.data(),
-                                                                  frame.width, frame.height, 4U);
-        if (!overlay_ok(overlay_, error, "SetOverlayRaw(window frame)")) {
-            return false;
-        }
-        if (frame.source_width != mouse_width_ || frame.source_height != mouse_height_) {
-            vr::HmdVector2_t mouse_scale{{static_cast<float>(frame.source_width),
-                                          static_cast<float>(frame.source_height)}};
-            const bool mouse_scale_set = overlay_ok(
-                overlay_, overlay_->SetOverlayMouseScale(main_handle_, &mouse_scale), "SetOverlayMouseScale");
-            if (!mouse_scale_set) {
+        if (!opengl_mode_) {
+            const vr::VRTextureBounds_t bounds{0.0F, 1.0F, 1.0F, 0.0F};
+            if (!overlay_ok(overlay_, overlay_->SetOverlayTextureBounds(main_handle_, &bounds),
+                            "SetOverlayTextureBounds(OpenGL flip)")) {
                 return false;
             }
-            mouse_width_ = frame.source_width;
-            mouse_height_ = frame.source_height;
+            opengl_bounds_configured_ = true;
         }
-        return true;
+        if (!overlay_ok(overlay_, overlay_->SetOverlayTexture(main_handle_, texture),
+                        "SetOverlayTexture(window frame)")) {
+            return false;
+        }
+        if (!opengl_mode_) {
+            opengl_mode_ = true;
+            raw_in_flight_ = false;
+            raw_frame_.reset();
+            pending_raw_frame_.reset();
+            waiting_frame_.clear();
+            std::cout << "dashboard: streaming window frames through persistent OpenGL texture\n";
+        }
+        return update_mouse_scale(frame.source_width, frame.source_height);
+    }
+
+    bool submit_raw(CapturedFrame&& frame) {
+        if (opengl_mode_ || frame.rgba.empty()) {
+            return false;
+        }
+        if (opengl_bounds_configured_) {
+            const vr::VRTextureBounds_t bounds{0.0F, 0.0F, 1.0F, 1.0F};
+            if (!overlay_ok(overlay_, overlay_->SetOverlayTextureBounds(main_handle_, &bounds),
+                            "SetOverlayTextureBounds(raw fallback)")) {
+                return false;
+            }
+            opengl_bounds_configured_ = false;
+        }
+        pending_raw_frame_ = std::move(frame);
+        if (raw_in_flight_) {
+            return true;
+        }
+        return submit_pending_raw();
     }
 
     void process_events(X11WindowCapture* capture) {
         vr::VREvent_t event{};
         while (overlay_->PollNextOverlayEvent(main_handle_, &event, sizeof(event))) {
             switch (event.eventType) {
+                case vr::VREvent_ImageLoaded:
+                    complete_raw_submission(false);
+                    break;
+                case vr::VREvent_ImageFailed:
+                    complete_raw_submission(true);
+                    break;
                 case vr::VREvent_MouseMove:
                     if (capture != nullptr) {
                         capture->send_mouse_move(event.data.mouse.x, event.data.mouse.y, x_button_state_);
@@ -1192,10 +1579,58 @@ public:
     }
 
 private:
+    bool update_mouse_scale(std::uint32_t source_width, std::uint32_t source_height) {
+        if (source_width != mouse_width_ || source_height != mouse_height_) {
+            vr::HmdVector2_t mouse_scale{{static_cast<float>(source_width),
+                                          static_cast<float>(source_height)}};
+            const bool mouse_scale_set = overlay_ok(
+                overlay_, overlay_->SetOverlayMouseScale(main_handle_, &mouse_scale), "SetOverlayMouseScale");
+            if (!mouse_scale_set) {
+                return false;
+            }
+            mouse_width_ = source_width;
+            mouse_height_ = source_height;
+        }
+        return true;
+    }
+
+    bool submit_pending_raw() {
+        if (!pending_raw_frame_.has_value()) {
+            return true;
+        }
+        raw_frame_ = std::move(pending_raw_frame_);
+        pending_raw_frame_.reset();
+        CapturedFrame& frame = *raw_frame_;
+        const vr::EVROverlayError error = overlay_->SetOverlayRaw(
+            main_handle_, frame.rgba.data(), frame.width, frame.height, 4U);
+        if (!overlay_ok(overlay_, error, "SetOverlayRaw(window frame fallback)")) {
+            raw_frame_.reset();
+            raw_in_flight_ = false;
+            return false;
+        }
+        raw_in_flight_ = true;
+        if (!raw_fallback_logged_) {
+            raw_fallback_logged_ = true;
+            std::cerr << "dashboard: using acknowledged SetOverlayRaw fallback; OpenGL transport is unavailable\n";
+        }
+        return update_mouse_scale(frame.source_width, frame.source_height);
+    }
+
+    void complete_raw_submission(bool failed) {
+        if (opengl_mode_ || !raw_in_flight_) {
+            return;
+        }
+        if (failed) {
+            std::cerr << "dashboard: SteamVR reported that a raw overlay frame failed to load\n";
+        }
+        raw_in_flight_ = false;
+        submit_pending_raw();
+    }
+
     void set_fallback_thumbnail() {
-        std::vector<std::uint8_t> thumbnail = create_placeholder(256U, 256U, true);
+        thumbnail_frame_ = create_placeholder(256U, 256U, true);
         const bool thumbnail_set = overlay_ok(
-            overlay_, overlay_->SetOverlayRaw(thumbnail_handle_, thumbnail.data(), 256U, 256U, 4U),
+            overlay_, overlay_->SetOverlayRaw(thumbnail_handle_, thumbnail_frame_.data(), 256U, 256U, 4U),
             "SetOverlayRaw(thumbnail)");
         if (!thumbnail_set) {
             std::cerr << "dashboard: fallback thumbnail could not be submitted\n";
@@ -1233,9 +1668,17 @@ private:
     vr::VROverlayHandle_t main_handle_{vr::k_ulOverlayHandleInvalid};
     vr::VROverlayHandle_t thumbnail_handle_{vr::k_ulOverlayHandleInvalid};
     bool created_{false};
+    bool opengl_mode_{false};
+    bool opengl_bounds_configured_{false};
+    bool raw_in_flight_{false};
+    bool raw_fallback_logged_{false};
     std::uint32_t mouse_width_{};
     std::uint32_t mouse_height_{};
     unsigned int x_button_state_{};
+    std::vector<std::uint8_t> waiting_frame_;
+    std::vector<std::uint8_t> thumbnail_frame_;
+    std::optional<CapturedFrame> raw_frame_;
+    std::optional<CapturedFrame> pending_raw_frame_;
 };
 
 int run_self_test() {
@@ -1250,6 +1693,14 @@ int run_self_test() {
     passed &= channel_from_pixel(0x000000FFUL, 0x000000FFUL) == 255U;
     const std::vector<std::uint8_t> placeholder = create_placeholder(64U, 32U, false);
     passed &= placeholder.size() == 64U * 32U * 4U;
+    CapturedFrame black_frame{8U, 8U, 8U, 8U, std::vector<std::uint8_t>(8U * 8U * 4U, 0U)};
+    passed &= is_effectively_blank(black_frame);
+    CapturedFrame visible_frame = black_frame;
+    for (std::size_t pixel = 0U; pixel < 4U; ++pixel) {
+        visible_frame.rgba[pixel * 4U] = 32U;
+        visible_frame.rgba[pixel * 4U + 3U] = 255U;
+    }
+    passed &= !is_effectively_blank(visible_frame);
     if (!passed) {
         std::cerr << "dashboard self-test failed\n";
         return 1;
@@ -1271,6 +1722,7 @@ int run_dashboard(const Arguments& arguments) {
         return 4;
     }
 
+    OpenGlTextureUploader texture_uploader;
     DashboardOverlay dashboard(openvr.overlay(), arguments.driver_root);
     if (!dashboard.create()) {
         return 5;
@@ -1281,6 +1733,10 @@ int run_dashboard(const Arguments& arguments) {
     if (!capture_ready) {
         std::cerr << "dashboard: tab is active, but desktop capture is unavailable; retrying in the background\n";
     }
+    bool texture_transport_ready = texture_uploader.initialize();
+    if (!texture_transport_ready) {
+        std::cerr << "dashboard: OpenGL texture transport is unavailable; retrying in the background\n";
+    }
 
     constexpr std::uint32_t maximum_width = 1280U;
     constexpr std::uint32_t maximum_height = 720U;
@@ -1288,6 +1744,7 @@ int run_dashboard(const Arguments& arguments) {
     auto next_frame = Clock::now();
     auto next_search = Clock::now();
     auto next_capture_retry = Clock::now() + std::chrono::seconds(2);
+    auto next_texture_retry = Clock::now() + std::chrono::seconds(5);
 
     while (g_running.load() && parent_is_alive(arguments.parent_pid)) {
         dashboard.process_events(capture_ready ? &capture : nullptr);
@@ -1299,6 +1756,10 @@ int run_dashboard(const Arguments& arguments) {
                 std::cout << "dashboard: desktop capture became available\n";
             }
         }
+        if (!texture_transport_ready && now >= next_texture_retry) {
+            texture_transport_ready = texture_uploader.initialize();
+            next_texture_retry = now + std::chrono::seconds(5);
+        }
         if (capture_ready && now >= next_search) {
             capture.refresh_target();
             next_search = now + std::chrono::seconds(1);
@@ -1306,7 +1767,17 @@ int run_dashboard(const Arguments& arguments) {
         if (capture_ready && dashboard.is_active() && now >= next_frame) {
             std::optional<CapturedFrame> frame = capture.capture(maximum_width, maximum_height);
             if (frame.has_value()) {
-                dashboard.submit(*frame);
+                if (texture_transport_ready) {
+                    if (texture_uploader.upload(*frame)) {
+                        if (!dashboard.submit_texture(*frame, texture_uploader.texture())) {
+                            texture_transport_ready = false;
+                        }
+                    } else {
+                        texture_transport_ready = false;
+                    }
+                } else {
+                    dashboard.submit_raw(std::move(*frame));
+                }
             }
             next_frame = now + frame_interval;
         }

@@ -25,7 +25,7 @@ chmod 0755 "$driver_root/bin/linux64/driver_standable.so" \
 
 steamvr_root="$(bash "$script_dir/find-steamvr.sh")"
 if ! bash "$script_dir/enable-dashboard.sh" --if-present; then
-    echo "WARNING: The dashboard preference could not be enabled automatically." >&2
+    echo "WARNING: The duplicate Windows dashboard entry could not be disabled automatically." >&2
 fi
 "$steamvr_root/bin/vrpathreg.sh" adddriver "$driver_root"
 
