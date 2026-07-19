@@ -32,7 +32,7 @@ If auto-detection does not find the app:
 ./install.sh --standable-root "/path/to/Standable Full Body Estimation"
 ```
 
-This repository is currently private. Cloning it through your normal GitHub credentials is enough for the first install because the checkout contains a verified fallback distribution. Later online updates require either an authenticated GitHub CLI (`gh auth login`) or a `GITHUB_TOKEN`. If the repository becomes public, only the listed command-line dependencies are needed.
+This repository is public, so first installs and later updates need no GitHub authentication. The checkout also contains a verified fallback distribution. If you use a private fork, authenticate with `gh auth login` or provide `GITHUB_TOKEN` before an online update.
 
 ## Update
 
