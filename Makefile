@@ -25,7 +25,6 @@ RELAY_TEST := $(TEST_DIR)/provider_relay_smoke
 OVERLAY_ZIP := $(BUILD_DIR)/Standable-Linux-Bridge-Overlay.zip
 SOURCE_ZIP := $(BUILD_DIR)/Standable-Linux-Bridge-Source-v$(VERSION).zip
 DASHBOARD_POLISH_HEADER := src/dashboard/dashboard_polish.hpp
-RELAY_POLISH_HEADER := src/native/relay_polish.hpp
 
 OPENVR_COMMIT := 0924064316de3effbcd1acf1e309182a2deb1c05
 OPENVR_HEADER_BLOB := fcd675583622df0ea1a54d4f88c2b34c195c199b
@@ -38,7 +37,7 @@ NATIVE_CXXFLAGS := -std=c++20 -O2 -g -fPIC -fvisibility=hidden -Wall -Wextra -Wp
 NATIVE_LDFLAGS := -shared -Wl,--version-script=packaging/driver.exports.map -Wl,-z,defs -Wl,-z,now -Wl,-z,relro -Wl,--no-undefined
 DASHBOARD_CXXFLAGS := -std=c++23 -O2 -g -fPIE -Wall -Wextra -Wpedantic -Wconversion -Wshadow
 DASHBOARD_LDFLAGS := -pie -Wl,-z,now -Wl,-z,relro
-WINDOWS_CXXFLAGS := -target x86_64-windows-gnu -std=c++20 -O2 -Wall -Wextra -Wpedantic
+WINDOWS_CXXFLAGS := -target x86_64-windows-gnu -std=c++20 -O2 -Wall -Wextra -Wpedantic -Wno-nullability-completeness
 WINDOWS_LDFLAGS := -target x86_64-windows-gnu -static -O2 -s
 
 NATIVE_SOURCES := \
@@ -71,9 +70,6 @@ $(OPENVR_APP_HEADER):
 	@mkdir -p $(OPENVR_INCLUDE_DIR)
 	curl --fail --location --silent --show-error --output $@ $(OPENVR_APP_HEADER_URL)
 	@actual="$$(git hash-object '$@')"; [[ "$$actual" == '$(OPENVR_APP_HEADER_BLOB)' ]] || { rm -f '$@'; echo "OpenVR application header blob mismatch: expected $(OPENVR_APP_HEADER_BLOB), got $$actual" >&2; exit 1; }
-
-$(NATIVE_OBJ_DIR)/relay_tracker.o: CPPFLAGS += -include $(RELAY_POLISH_HEADER)
-$(NATIVE_OBJ_DIR)/relay_tracker.o: $(RELAY_POLISH_HEADER)
 
 $(NATIVE_OBJ_DIR)/%.o: src/native/%.cpp $(OPENVR_HEADER) include/bridge_protocol.hpp VERSION
 	@mkdir -p $(NATIVE_OBJ_DIR)
