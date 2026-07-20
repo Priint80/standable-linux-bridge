@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-driver_root="$(cd -- "$script_dir/.." && pwd -P)"
+bootstrap_script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+driver_root="$(cd -- "$bootstrap_script_dir/.." && pwd -P)"
 keep_state=0
 purge_state=0
 
@@ -39,16 +39,23 @@ done
 
 [[ -d "$driver_root" ]] || { echo "Standable folder does not exist: $driver_root" >&2; exit 2; }
 driver_root="$(cd -- "$driver_root" && pwd -P)"
-script_dir="$driver_root/scripts"
-manifest_manager="$script_dir/manifest-manager.sh"
+installed_script_dir="$driver_root/scripts"
+
+# Repair may execute this script from a temporary maintenance bundle while the
+# installed scripts are old, incomplete, or about to be removed. Prefer the
+# installed helper when available and fall back to the bundle beside this file.
+manifest_manager="$installed_script_dir/manifest-manager.sh"
+[[ -f "$manifest_manager" ]] || manifest_manager="$bootstrap_script_dir/manifest-manager.sh"
+find_steamvr="$installed_script_dir/find-steamvr.sh"
+[[ -f "$find_steamvr" ]] || find_steamvr="$bootstrap_script_dir/find-steamvr.sh"
 
 state_dir=""
-if [[ -x "$manifest_manager" ]]; then
+if [[ -f "$manifest_manager" ]]; then
     state_dir="$(bash "$manifest_manager" state-dir "$driver_root")"
 fi
 
-if [[ -x "$script_dir/find-steamvr.sh" ]]; then
-    steamvr_root="$(bash "$script_dir/find-steamvr.sh" 2>/dev/null || true)"
+if [[ -f "$find_steamvr" ]]; then
+    steamvr_root="$(bash "$find_steamvr" 2>/dev/null || true)"
     if [[ -n "$steamvr_root" && -x "$steamvr_root/bin/vrpathreg.sh" ]]; then
         "$steamvr_root/bin/vrpathreg.sh" removedriver "$driver_root" >/dev/null 2>&1 || true
     fi
@@ -67,7 +74,7 @@ if [[ -f "$pid_file" ]]; then
     rm -f -- "$pid_file"
 fi
 
-if [[ -x "$manifest_manager" ]]; then
+if [[ -f "$manifest_manager" ]]; then
     bash "$manifest_manager" restore "$driver_root" || {
         echo "WARNING: The original manifest could not be restored automatically." >&2
         echo "The current manifest was left in place to avoid deleting unknown user data." >&2
