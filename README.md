@@ -6,7 +6,7 @@ This repository contains only newly written bridge code. It does not include Sta
 
 ## Install
 
-Requirements:
+Runtime requirements:
 
 - Linux x86-64 with native SteamVR
 - X11 or a Wayland desktop with XWayland
@@ -17,6 +17,8 @@ Requirements:
 - `bash`, `curl`, `unzip`, and `sha256sum`
 - Python 3 with Tk support for the graphical manager; the CLI remains available without Tk
 
+A source-checkout installation also needs `g++`, GNU `make`, `binutils`, `zip`, and Zig because it builds the checked-out branch before installation.
+
 Close SteamVR, clone the repository, and open the maintenance window:
 
 ```bash
@@ -25,19 +27,21 @@ cd standable-linux-bridge
 ./scripts/bridge-manager.sh
 ```
 
-Select the original **Standable Full Body Estimation** folder and choose **Install**.
+Select the original **Standable Full Body Estimation** folder and choose **Install**. When the manager is opened from a source checkout, Install builds and installs that exact checkout instead of silently selecting the older bundled release ZIP.
 
-CLI installation is still available:
+CLI source installation:
 
 ```bash
-./install.sh
+./scripts/source-install.sh
 ```
 
 If auto-detection does not find the app:
 
 ```bash
-./install.sh --standable-root "/path/to/Standable Full Body Estimation"
+./scripts/source-install.sh --standable-root "/path/to/Standable Full Body Estimation"
 ```
+
+A packaged overlay does not need the compiler toolchain; extract it into the original Standable folder and run `./scripts/bridge-manager.sh` or `./scripts/install.sh` there.
 
 The installer verifies the bridge distribution, copies only bridge-owned files, keeps the original Standable executable, Windows provider, settings, resources, and saved poses untouched, and registers the native driver with SteamVR.
 
@@ -59,14 +63,15 @@ Run the graphical manager from the installed Standable folder:
 
 It provides four actions:
 
-- **Install** — installs and registers the native bridge
-- **Update** — installs the newest packaged build while preserving installation provenance
+- **Install** — builds the current source branch when launched from a checkout, or installs the packaged overlay when launched from an installed copy
+- **Update** — installs the newest packaged build while preserving installation provenance; a full source checkout builds its current files instead of reusing a same-version bundled ZIP
 - **Repair** — rebases the recorded source checkout against its corresponding branch, builds a fresh overlay, runs uninstall, and reinstalls it; when no persistent checkout exists, it clones that recorded branch into a temporary build tree
 - **Uninstall** — unregisters the driver, restores the exact original `driver.vrdrivermanifest`, restores pre-existing files, and removes only bridge-owned files
 
 CLI equivalents:
 
 ```bash
+./scripts/source-install.sh
 ./scripts/update.sh
 ./scripts/repair.sh
 ./scripts/uninstall.sh
@@ -84,7 +89,7 @@ Timestamped pre-update snapshots remain under:
 ~/.local/state/standable-linux-bridge/backups/
 ```
 
-The managed SteamVR manifest preserves the original driver name and other front-end fields, changes only the platform-hosting fields needed by native Linux SteamVR, and creates a matching native binary alias when the original driver name requires one.
+The managed SteamVR manifest preserves the original driver name and other front-end fields, changes only the platform-hosting fields needed by native Linux SteamVR, and creates a matching native binary alias when the original driver name requires one. A conflicting pre-existing alias is preserved and causes installation to stop before the manifest is replaced.
 
 ## Troubleshooting
 
@@ -119,7 +124,7 @@ See [README-LINUX.md](README-LINUX.md) for packaged-overlay instructions and [do
 
 ## What the bridge preserves
 
-The original Windows DLL remains responsible for authentication, calibration, tracker creation, pose estimation, settings, UI communication, display names, tracker properties, and resource identities. The helper mirrors physical OpenVR devices into the original provider and relays its tracker registrations, properties, and exact `DriverPose_t` output back to native SteamVR. It does not reimplement or alter Standable's tracking math.
+The original Windows DLL remains responsible for authentication, calibration, tracker creation, pose estimation, settings, UI communication, display names, tracker properties, and resource identities. The helper mirrors physical OpenVR devices into the original provider and relays its tracker registrations, arbitrary property writes, and exact `DriverPose_t` output back to native SteamVR. It does not reimplement or alter Standable's tracking math.
 
 Linux SteamVR does not ship the Windows SDK redistributable expected by the original DLL. The bridge-owned `steam_api64.dll` exports only the four functions imported by that DLL, connects to Proton's authenticated `steamclient64.dll`, and refuses initialization unless the signed-in account reports ownership of App 2370570. No Valve binary is bundled and no ownership check is bypassed.
 
@@ -140,7 +145,7 @@ build/Standable-Linux-Bridge-Overlay.zip
 build/Standable-Linux-Bridge-Source-v1.3.5.zip
 ```
 
-`make test` covers OpenVR factory negotiation, authenticated loopback transport, provider initialization, tracker registration/properties/pose relay, the dashboard companion, Proton selection, OpenVR runtime handoff, prefix setup, Steam-client discovery, UI launch, managed-manifest behavior, installation, update, and driver registration. `make verify` checks architectures, exports, dependencies, privacy-safe debug output, maintenance scripts, and overlay layout.
+`make test` covers OpenVR factory negotiation, authenticated loopback transport, provider initialization, tracker registration/properties/pose relay, the dashboard companion, Proton selection, OpenVR runtime handoff, prefix setup, Steam-client discovery, UI launch, managed-manifest identity and rollback, installation, update, and driver registration. `make verify` checks architectures, exports, dependencies, privacy-safe debug output, maintenance scripts, and overlay layout.
 
 For an integration check against a local original installation:
 
