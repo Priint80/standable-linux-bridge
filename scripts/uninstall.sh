@@ -132,6 +132,7 @@ else
         scripts/manifest-manager.sh
         scripts/repair.sh
         scripts/runtime-common.sh
+        scripts/source-install.sh
         scripts/standable-bridge-launcher.sh
         scripts/uninstall.sh
         scripts/update.sh
