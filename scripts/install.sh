@@ -64,6 +64,49 @@ mkdir -p "$state_dir"
     fi
 } >"$state_dir/metadata.env"
 
+# The top-level installer creates a timestamped snapshot before replacing any
+# bridge-owned file. On the first managed install, migrate that snapshot into a
+# per-installation ownership record. Later updates refresh hashes but never
+# overwrite the original/absent decision.
+backup_root="${XDG_STATE_HOME:-$HOME/.local/state}/standable-linux-bridge/backups"
+latest_backup=""
+if [[ -d "$backup_root" ]]; then
+    latest_backup="$(find "$backup_root" -mindepth 1 -maxdepth 1 -type d -printf '%f\t%p\n' 2>/dev/null | sort | tail -n 1 | cut -f2-)"
+fi
+bridge_files=(
+    VERSION
+    README-LINUX.md
+    THIRD_PARTY_NOTICES.md
+    bin/linux64/driver_standable.so
+    bin/linux64/standable_dashboard_overlay
+    bin/win64/standable_bridge_host.exe
+    bin/win64/steam_api64.dll
+    share/standable-linux-bridge/driver.vrdrivermanifest
+)
+while IFS= read -r relative; do
+    bridge_files+=("$relative")
+done < <(cd -- "$driver_root" && find scripts -maxdepth 1 -type f -name '*.sh' -print | sort)
+
+installed_list="$state_dir/installed-files.tsv.new"
+: >"$installed_list"
+for relative in "${bridge_files[@]}"; do
+    destination="$driver_root/$relative"
+    [[ -f "$destination" ]] || continue
+    original="$state_dir/original-files/$relative"
+    absent="$state_dir/absent-files/$relative"
+    if [[ ! -e "$original" && ! -e "$absent" ]]; then
+        if [[ -n "$latest_backup" && -f "$latest_backup/$relative" ]]; then
+            mkdir -p "$(dirname -- "$original")"
+            cp -a -- "$latest_backup/$relative" "$original"
+        else
+            mkdir -p "$(dirname -- "$absent")"
+            : >"$absent"
+        fi
+    fi
+    printf '%s\t%s\n' "$(sha256sum "$destination" | awk '{print $1}')" "$relative" >>"$installed_list"
+done
+mv -f -- "$installed_list" "$state_dir/installed-files.tsv"
+
 steamvr_root="$(bash "$script_dir/find-steamvr.sh")"
 if ! bash "$script_dir/enable-dashboard.sh" --if-present; then
     echo "WARNING: The duplicate Windows dashboard entry could not be disabled automatically." >&2
