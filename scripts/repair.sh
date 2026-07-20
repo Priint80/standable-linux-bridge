@@ -20,8 +20,8 @@ Usage: ./scripts/repair.sh [options]
 
 Repair rebases the saved source checkout onto its corresponding remote branch,
 builds a fresh overlay, uninstalls the current bridge, and installs that build.
-When no source checkout is available, it reinstalls from the saved repository
-and branch instead.
+If no persistent checkout is recorded, Repair clones the saved branch into a
+temporary source tree and performs the same clean rebuild.
 EOF
             exit 0
             ;;
@@ -37,6 +37,7 @@ if [[ -x "$manifest_manager" ]]; then
     state_dir="$(bash "$manifest_manager" state-dir "$driver_root")"
     metadata="$state_dir/metadata.env"
     if [[ -f "$metadata" ]]; then
+        # Written by scripts/install.sh with shell-escaped values only.
         source "$metadata"
         repo="${STANDABLE_BRIDGE_REPO:-$repo}"
         branch="${STANDABLE_BRIDGE_BRANCH:-$branch}"
@@ -44,19 +45,30 @@ if [[ -x "$manifest_manager" ]]; then
     fi
 fi
 
-[[ "$branch" =~ ^[A-Za-z0-9._/-]+$ && "$branch" != *..* ]] || {
+[[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
+    echo "Saved repository is invalid: $repo" >&2
+    exit 3
+}
+[[ "$branch" =~ ^[A-Za-z0-9._/-]+$ && "$branch" != *..* && "$branch" != /* && "$branch" != */ ]] || {
     echo "Saved branch name is invalid: $branch" >&2
     exit 3
 }
+for command in git make bash; do
+    command -v "$command" >/dev/null 2>&1 || {
+        echo "Repair requires $command." >&2
+        exit 3
+    }
+done
 
 temporary="$(mktemp -d "${TMPDIR:-/tmp}/standable-bridge-repair.XXXXXX")"
 cleanup() { rm -rf -- "$temporary"; }
 trap cleanup EXIT
 cp -a -- "$script_dir/uninstall.sh" "$temporary/uninstall.sh"
-cp -a -- "$script_dir/bridge-installer.sh" "$temporary/bridge-installer.sh"
-chmod 0755 "$temporary"/*.sh
+chmod 0755 "$temporary/uninstall.sh"
 
+persistent_checkout=0
 if [[ -n "$source_checkout" && -d "$source_checkout/.git" ]]; then
+    persistent_checkout=1
     source_checkout="$(cd -- "$source_checkout" && pwd -P)"
     current_branch="$(git -C "$source_checkout" branch --show-current)"
     [[ -n "$current_branch" ]] || {
@@ -72,27 +84,35 @@ if [[ -n "$source_checkout" && -d "$source_checkout/.git" ]]; then
     echo "Refreshing source checkout from origin/$branch"
     git -C "$source_checkout" fetch --prune origin "$branch"
     git -C "$source_checkout" rebase --autostash "origin/$branch"
-
-    echo "Building a fresh bridge overlay"
-    make -C "$source_checkout" overlay
-    overlay="$source_checkout/build/overlay"
-    [[ -f "$overlay/VERSION" ]] || { echo "Fresh overlay build is incomplete" >&2; exit 5; }
-
-    bash "$temporary/uninstall.sh" --standable-root "$driver_root" --keep-state
-    bash "$source_checkout/install.sh" \
-        --standable-root "$driver_root" \
-        --overlay-dir "$overlay" \
-        --repo "$repo" \
-        --branch "$branch" \
-        --source-checkout "$source_checkout"
 else
-    echo "No source checkout is recorded; reinstalling from $repo branch $branch"
-    bash "$temporary/uninstall.sh" --standable-root "$driver_root" --keep-state
-    bash "$temporary/bridge-installer.sh" \
-        --standable-root "$driver_root" \
-        --repo "$repo" \
-        --branch "$branch" \
-        --update
+    source_checkout="$temporary/source"
+    echo "Cloning $repo branch $branch for repair"
+    git clone --depth 1 --single-branch --branch "$branch" \
+        "https://github.com/$repo.git" "$source_checkout"
 fi
+
+echo "Building a fresh bridge overlay"
+make -C "$source_checkout" overlay
+overlay="$source_checkout/build/overlay"
+[[ -f "$overlay/VERSION" && -x "$overlay/scripts/install.sh" ]] || {
+    echo "Fresh overlay build is incomplete" >&2
+    exit 5
+}
+
+bash "$temporary/uninstall.sh" --standable-root "$driver_root" --keep-state
+
+export STANDABLE_BRIDGE_REPO="$repo"
+export STANDABLE_BRIDGE_BRANCH="$branch"
+if ((persistent_checkout)); then
+    export STANDABLE_BRIDGE_SOURCE_CHECKOUT="$source_checkout"
+else
+    # Do not persist a temporary path. The branch remains recorded and the next
+    # Repair can create another clean temporary checkout.
+    export STANDABLE_BRIDGE_SOURCE_CHECKOUT=""
+fi
+bash "$source_checkout/install.sh" \
+    --standable-root "$driver_root" \
+    --overlay-dir "$overlay" \
+    --repo "$repo"
 
 echo "Standable Linux Bridge repair completed."
