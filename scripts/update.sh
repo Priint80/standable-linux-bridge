@@ -5,6 +5,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 driver_root="$(cd -- "$script_dir/.." && pwd -P)"
 installer="$script_dir/bridge-installer.sh"
 source_builder="$script_dir/source-install.sh"
+source_installer="$driver_root/install.sh"
 manifest_manager="$script_dir/manifest-manager.sh"
 repo="${STANDABLE_BRIDGE_REPO:-Priint80/standable-linux-bridge}"
 branch="${STANDABLE_BRIDGE_BRANCH:-main}"
@@ -33,10 +34,17 @@ if [[ -x "$installer" ]]; then
 fi
 
 if [[ -x "$source_builder" && -f "$driver_root/Makefile" ]]; then
-    # Source checkout: build the current files instead of selecting the bundled
-    # release ZIP, which may share a version number but contain older binaries.
+    # Full source checkout: build the current files instead of selecting the
+    # bundled release ZIP, which may share a version number but contain older binaries.
     echo "Source checkout detected; building its current overlay."
     exec "$source_builder" --update --repo "$repo" "$@"
+fi
+
+if [[ -x "$source_installer" ]]; then
+    # Compatibility fallback for an older or intentionally minimal source
+    # checkout that does not contain the source-build wrapper yet.
+    echo "Legacy source checkout detected; using its packaged installer."
+    exec "$source_installer" --update --repo "$repo" "$@"
 fi
 
 echo "Missing updater engine: $installer" >&2
