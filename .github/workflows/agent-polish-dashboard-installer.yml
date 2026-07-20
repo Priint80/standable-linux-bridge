@@ -12,7 +12,7 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   apply:
@@ -26,6 +26,7 @@ jobs:
           fetch-depth: 0
 
       - name: Apply and validate asserted patch
+        id: validate
         shell: bash
         run: |
           set +e
@@ -41,22 +42,23 @@ jobs:
           ) 2>&1 | tee agent-polish-validation.log
           status=${PIPESTATUS[0]}
           set -e
-          if ((status != 0)); then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add agent-polish-validation.log
-            git commit -m "Record polish validation failure" || true
-            git push origin HEAD:agent/polish-dashboard-installer
-            exit "$status"
-          fi
-          rm -f agent-polish-validation.log
+          printf '%s\n' "$status" > agent-polish-status.txt
+          tar -czf agent-polish-source.tar.gz \
+            Makefile install.sh README.md README-LINUX.md \
+            src/native/driver_main.cpp src/native/relay_tracker.cpp \
+            src/dashboard/dashboard_main.cpp \
+            scripts/diagnose.sh scripts/verify-artifacts.sh \
+            tests/script_runtime.sh
+          exit 0
 
-      - name: Commit validated patch
-        run: |
-          rm -f tools/apply_agent_polish.py .github/workflows/agent-polish-dashboard-installer.yml
-          rmdir tools 2>/dev/null || true
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "Polish dashboard input and installer"
-          git push origin HEAD:agent/polish-dashboard-installer
+      - name: Upload patched source and transcript
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: standable-polish-validation
+          path: |
+            agent-polish-source.tar.gz
+            agent-polish-validation.log
+            agent-polish-status.txt
+          if-no-files-found: error
+          retention-days: 1
