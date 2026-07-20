@@ -71,14 +71,33 @@ if [[ -n "$source_checkout" && -d "$source_checkout/.git" ]] && command -v git >
     [[ -n "$detected_branch" ]] && branch="$detected_branch"
 fi
 mkdir -p "$state_dir"
-{
-    printf 'STANDABLE_BRIDGE_REPO=%q\n' "$repo"
-    printf 'STANDABLE_BRIDGE_BRANCH=%q\n' "$branch"
-    printf 'STANDABLE_BRIDGE_SOURCE_CHECKOUT=%q\n' "$source_checkout"
-    if [[ -f "$driver_root/VERSION" ]]; then
-        printf 'STANDABLE_BRIDGE_VERSION=%q\n' "$(tr -d '\r\n' <"$driver_root/VERSION")"
-    fi
-} >"$state_dir/metadata.env"
+version=""
+if [[ -f "$driver_root/VERSION" ]]; then
+    version="$(tr -d '\r\n' <"$driver_root/VERSION")"
+fi
+python3 - "$state_dir/metadata.json" "$repo" "$branch" "$source_checkout" "$version" <<'PY'
+import json
+import os
+import sys
+
+path, repository, branch, checkout, version = sys.argv[1:]
+temporary = path + ".new"
+with open(temporary, "w", encoding="utf-8", newline="\n") as handle:
+    json.dump(
+        {
+            "repository": repository,
+            "branch": branch,
+            "source_checkout": checkout,
+            "version": version,
+        },
+        handle,
+        indent=2,
+        ensure_ascii=False,
+    )
+    handle.write("\n")
+os.replace(temporary, path)
+PY
+rm -f -- "$state_dir/metadata.env"
 
 # The top-level installer creates a timestamped snapshot before replacing any
 # bridge-owned file. On the first managed install, migrate that snapshot into a
