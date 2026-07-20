@@ -106,6 +106,14 @@ if [[ -n "$state_dir" && -f "$state_dir/installed-files.tsv" ]]; then
         restore_or_remove "$relative" "$expected_hash" || true
     done <"$state_dir/installed-files.tsv"
 else
+    # Older bridge versions only created timestamped backups. The oldest
+    # backup is the pre-bridge snapshot: files present there are restored;
+    # bridge paths absent there are removed.
+    backup_root="$state_root/backups"
+    legacy_backup=""
+    if [[ -d "$backup_root" ]]; then
+        legacy_backup="$(find "$backup_root" -mindepth 1 -maxdepth 1 -type d -printf '%f\t%p\n' 2>/dev/null | sort | head -n 1 | cut -f2-)"
+    fi
     fallback_files=(
         VERSION
         README-LINUX.md
@@ -116,7 +124,6 @@ else
         bin/win64/steam_api64.dll
         share/standable-linux-bridge/driver.vrdrivermanifest
         scripts/bridge-installer.sh
-        scripts/bridge-manager.py
         scripts/bridge-manager.sh
         scripts/diagnose.sh
         scripts/enable-dashboard.sh
@@ -131,7 +138,13 @@ else
         scripts/verify-artifacts.sh
     )
     for relative in "${fallback_files[@]}"; do
-        rm -f -- "$driver_root/$relative"
+        destination="$driver_root/$relative"
+        if [[ -n "$legacy_backup" && -f "$legacy_backup/$relative" ]]; then
+            mkdir -p "$(dirname -- "$destination")"
+            cp -a -- "$legacy_backup/$relative" "$destination"
+        else
+            rm -f -- "$destination"
+        fi
     done
 fi
 
