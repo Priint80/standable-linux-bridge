@@ -23,6 +23,7 @@ for script in \
     enable-dashboard.sh \
     standable-bridge-launcher.sh \
     install.sh \
+    source-install.sh \
     update.sh \
     repair.sh \
     uninstall.sh \
