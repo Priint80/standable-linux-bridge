@@ -5,7 +5,42 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 driver_root="$(cd -- "$script_dir/.." && pwd -P)"
 source "$script_dir/runtime-common.sh"
 
-echo "Standable Linux bridge diagnostics"
+show_full_paths=0
+while (($#)); do
+    case "$1" in
+        --full-paths) show_full_paths=1; shift ;;
+        -h|--help)
+            cat <<'EOF'
+Usage: ./scripts/diagnose.sh [--full-paths]
+
+Produces a local support report. Home and Standable paths are redacted by
+default; --full-paths is intended only for private local debugging.
+EOF
+            exit 0
+            ;;
+        *) echo "Unknown option: $1" >&2; exit 2 ;;
+    esac
+done
+
+if ((show_full_paths == 0)) && command -v python3 >/dev/null 2>&1; then
+    exec > >(
+        python3 -u -c '
+import sys
+pairs = ((sys.argv[1], "<standable-root>"), (sys.argv[2], "~"))
+for line in sys.stdin:
+    for old, new in pairs:
+        if old:
+            line = line.replace(old, new)
+    sys.stdout.write(line)
+    sys.stdout.flush()
+' "$driver_root" "$HOME"
+    ) 2>&1
+fi
+
+echo "Standable Linux Bridge diagnostics"
+if ((show_full_paths == 0)); then
+    echo "Path privacy: home and Standable paths are redacted (use --full-paths locally to disable)"
+fi
 echo "Driver root: $driver_root"
 echo
 
@@ -25,6 +60,16 @@ for path in \
     fi
 done
 
+manifest_manager="$script_dir/manifest-manager.sh"
+if [[ -x "$manifest_manager" ]]; then
+    state_dir="$(bash "$manifest_manager" state-dir "$driver_root" 2>/dev/null || true)"
+    if [[ -n "$state_dir" && -f "$state_dir/original-driver.vrdrivermanifest" ]]; then
+        echo "OK: exact original SteamVR manifest backup is present"
+    else
+        echo "MISSING: original SteamVR manifest backup"
+    fi
+fi
+
 if [[ -f "$driver_root/bin/win64/driver_standable.dll" ]]; then
     echo "Original DLL SHA-256: $(sha256sum "$driver_root/bin/win64/driver_standable.dll" | awk '{print $1}')"
 fi
@@ -42,9 +87,9 @@ echo
 echo "Desktop session: XDG_SESSION_TYPE=${XDG_SESSION_TYPE:-<unset>} DISPLAY=${DISPLAY:-<unset>} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-<unset>}"
 for library in libX11.so.6 libXcomposite.so.1 libXtst.so.6 libGL.so.1; do
     if ldconfig -p 2>/dev/null | grep -Fq "$library"; then
-        echo "OK: dashboard capture/texture runtime: $library"
+        echo "OK: dashboard capture/input runtime: $library"
     else
-        echo "MISSING: dashboard capture/texture runtime: $library"
+        echo "MISSING: dashboard capture/input runtime: $library"
     fi
 done
 echo
@@ -60,7 +105,9 @@ if [[ -n "$steamvr_root" ]]; then
     if standable_select_runner "$steamvr_root" 2>/dev/null; then
         echo "Runner: $STANDABLE_RUNNER_KIND ($STANDABLE_RUNNER_PATH)"
         data_root="${XDG_DATA_HOME:-$HOME/.local/share}/standable-linux-bridge"
-        standable_configure_runner "$data_root" "$driver_root"
+        # Pass SteamVR through so the report checks the same OpenVR handoff the
+        # launcher actually creates, rather than inspecting an unconfigured path.
+        standable_configure_runner "$data_root" "$driver_root" "$steamvr_root"
         steamclient="$(standable_find_steamclient64 "$data_root" 2>/dev/null || true)"
         if [[ -n "$steamclient" ]]; then
             echo "Steam client runtime: $steamclient"
@@ -86,8 +133,17 @@ if [[ -n "$steamvr_root" ]]; then
         echo "MISSING: compatible Proton or Wine runner"
     fi
     echo
-    echo "SteamVR registered drivers:"
-    "$steamvr_root/bin/vrpathreg.sh" show 2>&1 | sed 's/^/  /'
+    echo "SteamVR Standable registration:"
+    if ((show_full_paths)); then
+        "$steamvr_root/bin/vrpathreg.sh" show 2>&1 | sed 's/^/  /'
+    else
+        registration="$($steamvr_root/bin/vrpathreg.sh show 2>&1 | grep -i 'standable' || true)"
+        if [[ -n "$registration" ]]; then
+            printf '%s\n' "$registration" | sed 's/^/  /'
+        else
+            echo "  No Standable registration was reported."
+        fi
+    fi
 else
     echo "MISSING: SteamVR (set STEAMVR_ROOT if it is installed in a custom location)"
 fi
@@ -142,7 +198,7 @@ for log in \
     "$HOME/.var/app/com.valvesoftware.Steam/data/Steam/logs/vrserver.txt"; do
     [[ -f "$log" ]] || continue
     echo
-    echo "Recent SteamVR bridge lines: $log"
+    echo "Recent SteamVR Standable lines: $log"
     tail -n 500 "$log" | grep -Ei 'standable-linux|standable_bridge|driver_standable' | tail -n 80 | sed 's/^/  /'
     break
 done
