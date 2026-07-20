@@ -3,11 +3,16 @@ set -euo pipefail
 
 manager="${1:-scripts/manifest-manager.sh}"
 template="${2:-packaging/driver.vrdrivermanifest}"
+scripts_dir="$(cd -- "$(dirname -- "$manager")" && pwd -P)"
 temporary="$(mktemp -d /tmp/standable-manifest-test.XXXXXX)"
 cleanup() { rm -rf -- "$temporary"; }
 trap cleanup EXIT
 
 export XDG_STATE_HOME="$temporary/state"
+
+# In a real source checkout, the graphical Install action must route through
+# source-install.sh so the current branch is built instead of reusing dist/.
+bash "$scripts_dir/bridge-manager.sh" --self-test >/dev/null
 
 make_root() {
     local root="$1"
@@ -67,4 +72,4 @@ fi
 cmp -s "$temporary/conflict-original" "$conflict_root/driver.vrdrivermanifest"
 [[ "$(sha256sum "$conflict_root/bin/linux64/driver_standable_original.so" | awk '{print $1}')" == "$conflict_hash" ]]
 
-echo "PASS: manifest identity, native alias creation, exact restoration, and conflict preservation"
+echo "PASS: source GUI routing, manifest identity, alias creation, exact restoration, and conflict preservation"
