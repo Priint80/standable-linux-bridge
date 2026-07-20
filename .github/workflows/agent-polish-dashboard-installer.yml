@@ -7,6 +7,9 @@ on:
     paths:
       - tools/apply_agent_polish.py
       - .github/workflows/agent-polish-dashboard-installer.yml
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
