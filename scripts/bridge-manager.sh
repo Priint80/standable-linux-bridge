@@ -44,7 +44,7 @@ def discover_root() -> Path | None:
 def command_for(action: str, root: Path) -> list[str]:
     installed_scripts = root / "scripts"
     if action == "install":
-        installer = BASE_ROOT / "install.sh" if IS_SOURCE else installed_scripts / "bridge-installer.sh"
+        installer = BASE_ROOT / "scripts/source-install.sh" if IS_SOURCE else installed_scripts / "bridge-installer.sh"
         return ["bash", str(installer), "--standable-root", str(root)]
     if action == "update":
         return ["bash", str(installed_scripts / "update.sh")]
@@ -76,7 +76,7 @@ def action_environment() -> dict[str, str]:
 def self_test() -> int:
     fake = Path("/tmp/Standable Full Body Estimation")
     expected = {
-        "install": "install.sh" if IS_SOURCE else "bridge-installer.sh",
+        "install": "source-install.sh" if IS_SOURCE else "bridge-installer.sh",
         "update": "update.sh",
         "repair": "repair.sh",
         "uninstall": "uninstall.sh",
@@ -98,7 +98,7 @@ try:
     from tkinter import filedialog, messagebox, scrolledtext
 except ImportError:
     print(
-        "Python Tk support is not installed. Use install.sh, update.sh, repair.sh, "
+        "Python Tk support is not installed. Use source-install.sh, update.sh, repair.sh, "
         "or uninstall.sh directly.",
         file=sys.stderr,
     )
@@ -176,7 +176,7 @@ class BridgeManager(tk.Tk):
         actions.grid_columnconfigure(1, weight=1)
         self.action_buttons: list[tk.Button] = []
         definitions = [
-            ("Install", "Add the native driver and dashboard bridge.", "install", False),
+            ("Install", "Build and install the selected branch.", "install", False),
             ("Update", "Install the newest build for this installation.", "update", False),
             ("Repair", "Rebase the saved branch, uninstall, and reinstall.", "repair", False),
             ("Uninstall", "Restore the original manifest and remove bridge files.", "uninstall", True),
