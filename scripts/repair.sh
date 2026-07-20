@@ -105,14 +105,27 @@ fi
     echo "Repair branch name is invalid: $branch" >&2
     exit 3
 }
-for command in git make bash; do
-    command -v "$command" >/dev/null 2>&1 || {
-        echo "Repair requires $command." >&2
-        exit 3
-    }
-done
 
-[[ -x "$uninstall_script" ]] || {
+required_commands=(bash git make g++ zig curl strip install python3 sha256sum)
+declare -a missing_commands=()
+for command_name in "${required_commands[@]}"; do
+    command -v "$command_name" >/dev/null 2>&1 || missing_commands+=("$command_name")
+done
+if ((${#missing_commands[@]})); then
+    printf 'Missing repair/build dependencies: %s\n' "${missing_commands[*]}" >&2
+    if command -v pacman >/dev/null 2>&1; then
+        cat >&2 <<'EOF'
+Install the required Arch/CachyOS packages with:
+  sudo pacman -S --needed base-devel zig curl git python
+Then run Repair again.
+EOF
+    else
+        echo "Install the missing commands with your distribution's package manager, then run Repair again." >&2
+    fi
+    exit 3
+fi
+
+[[ -f "$uninstall_script" ]] || {
     echo "No compatible uninstall script is available for repair." >&2
     exit 4
 }
