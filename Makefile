@@ -121,6 +121,7 @@ test: overlay $(FACTORY_TEST) $(TRANSPORT_TEST) $(RELAY_TEST)
 	$(TRANSPORT_TEST)
 	$(RELAY_TEST) $(NATIVE_SO)
 	$(DASHBOARD_APP) --self-test
+	bash tests/manifest_manager.sh scripts/manifest-manager.sh packaging/driver.vrdrivermanifest
 	bash tests/script_runtime.sh '$(OVERLAY_ROOT)'
 
 overlay: $(NATIVE_SO) $(DASHBOARD_APP) $(WINDOWS_HELPER) $(STEAM_API_BRIDGE)
