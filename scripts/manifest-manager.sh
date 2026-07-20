@@ -27,6 +27,7 @@ original_manifest="$state_dir/original-driver.vrdrivermanifest"
 managed_hash="$state_dir/managed-driver.sha256"
 generated_binary="$state_dir/generated-native-binary"
 manifest="$driver_root/driver.vrdrivermanifest"
+standard_binary="$driver_root/bin/linux64/driver_standable.so"
 
 atomic_copy() {
     local source="$1" destination="$2" mode="${3:-0644}" temporary
@@ -74,6 +75,10 @@ case "$command_name" in
         [[ -f "$manifest" ]] || {
             echo "The original driver.vrdrivermanifest is missing from the Standable folder" >&2
             exit 4
+        }
+        [[ -f "$standard_binary" ]] || {
+            echo "Native driver binary is missing: $standard_binary" >&2
+            exit 5
         }
         mkdir -p "$state_dir"
         printf '%s\n' "$driver_root" >"$state_dir/driver-root"
@@ -125,15 +130,20 @@ PY
         trap - EXIT
 
         driver_name="$(read_driver_name "$manifest")"
-        standard_binary="$driver_root/bin/linux64/driver_standable.so"
         expected_binary="$driver_root/bin/linux64/driver_${driver_name}.so"
-        if [[ "$expected_binary" != "$standard_binary" && ! -e "$expected_binary" ]]; then
-            [[ -f "$standard_binary" ]] || {
-                echo "Native driver binary is missing: $standard_binary" >&2
-                exit 5
-            }
-            ln -s "$(basename -- "$standard_binary")" "$expected_binary"
-            printf '%s\n' "$expected_binary" >"$generated_binary"
+        if [[ "$expected_binary" != "$standard_binary" ]]; then
+            if [[ -e "$expected_binary" || -L "$expected_binary" ]]; then
+                expected_target="$(readlink -f -- "$expected_binary" 2>/dev/null || true)"
+                standard_target="$(readlink -f -- "$standard_binary" 2>/dev/null || true)"
+                if [[ -z "$expected_target" || "$expected_target" != "$standard_target" ]]; then
+                    echo "A conflicting native driver alias already exists: $expected_binary" >&2
+                    echo "It was preserved instead of being overwritten. Move it aside and run Install again." >&2
+                    exit 5
+                fi
+            else
+                ln -s "$(basename -- "$standard_binary")" "$expected_binary"
+                printf '%s\n' "$expected_binary" >"$generated_binary"
+            fi
         fi
         sha256sum "$manifest" | awk '{print $1}' >"$managed_hash"
         printf '%s\n' "$driver_name"
@@ -148,7 +158,13 @@ PY
         if [[ -f "$generated_binary" ]]; then
             read -r path <"$generated_binary" || true
             if [[ -n "${path:-}" && -L "$path" ]]; then
-                rm -f -- "$path"
+                alias_target="$(readlink -f -- "$path" 2>/dev/null || true)"
+                standard_target="$(readlink -f -- "$standard_binary" 2>/dev/null || true)"
+                if [[ -n "$alias_target" && "$alias_target" == "$standard_target" ]]; then
+                    rm -f -- "$path"
+                else
+                    echo "Preserved modified native driver alias: $path" >&2
+                fi
             fi
             rm -f -- "$generated_binary"
         fi
