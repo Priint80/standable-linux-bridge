@@ -137,7 +137,10 @@ if [[ -n "$steamvr_root" ]]; then
     if ((show_full_paths)); then
         "$steamvr_root/bin/vrpathreg.sh" show 2>&1 | sed 's/^/  /'
     else
-        registration="$($steamvr_root/bin/vrpathreg.sh show 2>&1 | grep -i 'standable' || true)"
+        registration="$(
+            "$steamvr_root/bin/vrpathreg.sh" show 2>&1 |
+                grep -i 'standable' || true
+        )"
         if [[ -n "$registration" ]]; then
             printf '%s\n' "$registration" | sed 's/^/  /'
         else
