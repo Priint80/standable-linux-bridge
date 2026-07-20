@@ -41,13 +41,21 @@ done
 driver_root="$(cd -- "$driver_root" && pwd -P)"
 installed_script_dir="$driver_root/scripts"
 
-# Repair may execute this script from a temporary maintenance bundle while the
-# installed scripts are old, incomplete, or about to be removed. Prefer the
-# installed helper when available and fall back to the bundle beside this file.
-manifest_manager="$installed_script_dir/manifest-manager.sh"
-[[ -f "$manifest_manager" ]] || manifest_manager="$bootstrap_script_dir/manifest-manager.sh"
-find_steamvr="$installed_script_dir/find-steamvr.sh"
-[[ -f "$find_steamvr" ]] || find_steamvr="$bootstrap_script_dir/find-steamvr.sh"
+# Repair executes this script from a temporary bundle. In that case the fresh
+# bundled helpers must win over same-named legacy installed scripts. A normal
+# installed uninstall still uses the helpers in the Standable scripts folder.
+if [[ "$bootstrap_script_dir" != "$installed_script_dir" && -f "$bootstrap_script_dir/manifest-manager.sh" ]]; then
+    manifest_manager="$bootstrap_script_dir/manifest-manager.sh"
+else
+    manifest_manager="$installed_script_dir/manifest-manager.sh"
+    [[ -f "$manifest_manager" ]] || manifest_manager="$bootstrap_script_dir/manifest-manager.sh"
+fi
+if [[ "$bootstrap_script_dir" != "$installed_script_dir" && -f "$bootstrap_script_dir/find-steamvr.sh" ]]; then
+    find_steamvr="$bootstrap_script_dir/find-steamvr.sh"
+else
+    find_steamvr="$installed_script_dir/find-steamvr.sh"
+    [[ -f "$find_steamvr" ]] || find_steamvr="$bootstrap_script_dir/find-steamvr.sh"
+fi
 
 state_dir=""
 if [[ -f "$manifest_manager" ]]; then
