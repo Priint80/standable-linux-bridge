@@ -27,7 +27,7 @@ done
 chmod 0755 "$driver_root/bin/linux64/driver_standable.so" \
     "$driver_root/bin/linux64/standable_dashboard_overlay" \
     "$driver_root/bin/win64/standable_bridge_host.exe" \
-    "$script_dir"/*.sh "$script_dir"/*.py
+    "$script_dir"/*.sh
 
 driver_name="$(bash "$manifest_manager" install "$driver_root" "$manifest_template")"
 expected_native="$driver_root/bin/linux64/driver_${driver_name}.so"
@@ -35,6 +35,34 @@ expected_native="$driver_root/bin/linux64/driver_${driver_name}.so"
     echo "Managed manifest expects a native driver binary that is missing: $expected_native" >&2
     exit 3
 }
+
+# Save enough provenance for Update and Repair to stay on the corresponding
+# repository branch instead of silently switching an installation to main.
+state_dir="$(bash "$manifest_manager" state-dir "$driver_root")"
+repo="${STANDABLE_BRIDGE_REPO:-Priint80/standable-linux-bridge}"
+branch="${STANDABLE_BRIDGE_BRANCH:-main}"
+source_checkout="${STANDABLE_BRIDGE_SOURCE_CHECKOUT:-}"
+if [[ -z "$source_checkout" ]]; then
+    for candidate in "$driver_root/standable-linux-bridge" "$PWD"; do
+        if [[ -d "$candidate/.git" && -f "$candidate/Makefile" ]]; then
+            source_checkout="$(cd -- "$candidate" && pwd -P)"
+            break
+        fi
+    done
+fi
+if [[ -n "$source_checkout" && -d "$source_checkout/.git" ]] && command -v git >/dev/null 2>&1; then
+    detected_branch="$(git -C "$source_checkout" branch --show-current 2>/dev/null || true)"
+    [[ -n "$detected_branch" ]] && branch="$detected_branch"
+fi
+mkdir -p "$state_dir"
+{
+    printf 'STANDABLE_BRIDGE_REPO=%q\n' "$repo"
+    printf 'STANDABLE_BRIDGE_BRANCH=%q\n' "$branch"
+    printf 'STANDABLE_BRIDGE_SOURCE_CHECKOUT=%q\n' "$source_checkout"
+    if [[ -f "$driver_root/VERSION" ]]; then
+        printf 'STANDABLE_BRIDGE_VERSION=%q\n' "$(tr -d '\r\n' <"$driver_root/VERSION")"
+    fi
+} >"$state_dir/metadata.env"
 
 steamvr_root="$(bash "$script_dir/find-steamvr.sh")"
 if ! bash "$script_dir/enable-dashboard.sh" --if-present; then
