@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-driver_root="$(cd -- "$script_dir/.." && pwd -P)"
+repair_script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+driver_root="$(cd -- "$repair_script_dir/.." && pwd -P)"
 repo="${STANDABLE_BRIDGE_REPO:-Priint80/standable-linux-bridge}"
 branch="${STANDABLE_BRIDGE_BRANCH:-main}"
 source_checkout="${STANDABLE_BRIDGE_SOURCE_CHECKOUT:-}"
@@ -54,8 +54,11 @@ done
 
 [[ -d "$driver_root" ]] || { echo "Standable folder does not exist: $driver_root" >&2; exit 2; }
 driver_root="$(cd -- "$driver_root" && pwd -P)"
-script_dir="$driver_root/scripts"
-manifest_manager="$script_dir/manifest-manager.sh"
+driver_scripts="$driver_root/scripts"
+manifest_manager="$driver_scripts/manifest-manager.sh"
+[[ -x "$manifest_manager" ]] || manifest_manager="$repair_script_dir/manifest-manager.sh"
+uninstall_script="$driver_scripts/uninstall.sh"
+[[ -x "$uninstall_script" ]] || uninstall_script="$repair_script_dir/uninstall.sh"
 
 metadata_value() {
     local file="$1" key="$2"
@@ -109,15 +112,15 @@ for command in git make bash; do
     }
 done
 
-[[ -x "$script_dir/uninstall.sh" ]] || {
-    echo "The installed uninstall script is missing: $script_dir/uninstall.sh" >&2
+[[ -x "$uninstall_script" ]] || {
+    echo "No compatible uninstall script is available for repair." >&2
     exit 4
 }
 
 temporary="$(mktemp -d "${TMPDIR:-/tmp}/standable-bridge-repair.XXXXXX")"
 cleanup() { rm -rf -- "$temporary"; }
 trap cleanup EXIT
-cp -a -- "$script_dir/uninstall.sh" "$temporary/uninstall.sh"
+cp -a -- "$uninstall_script" "$temporary/uninstall.sh"
 chmod 0755 "$temporary/uninstall.sh"
 
 persistent_checkout=0
@@ -149,6 +152,8 @@ else
         "https://github.com/$repo.git" "$source_checkout"
 fi
 
+commit="$(git -C "$source_checkout" rev-parse HEAD 2>/dev/null || true)"
+
 echo "Building a fresh bridge overlay"
 make -C "$source_checkout" overlay
 overlay="$source_checkout/build/overlay"
@@ -161,11 +166,12 @@ bash "$temporary/uninstall.sh" --standable-root "$driver_root" --keep-state
 
 export STANDABLE_BRIDGE_REPO="$repo"
 export STANDABLE_BRIDGE_BRANCH="$branch"
+[[ -n "$commit" ]] && export STANDABLE_BRIDGE_COMMIT="$commit"
 if ((persistent_checkout)); then
     export STANDABLE_BRIDGE_SOURCE_CHECKOUT="$source_checkout"
 else
-    # Do not persist a temporary path. The branch remains recorded and the next
-    # Repair can create another clean temporary checkout.
+    # Do not persist a temporary path. The branch and exact commit remain
+    # recorded, and the next Repair can create another clean temporary checkout.
     export STANDABLE_BRIDGE_SOURCE_CHECKOUT=""
 fi
 bash "$source_checkout/install.sh" \
