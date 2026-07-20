@@ -27,6 +27,7 @@ installer_tree="$temporary/installer"
 remote_installer_tree="$temporary/remote-installer"
 source_checkout="$driver_root/standable-linux-bridge"
 curl_log="$temporary/curl.log"
+original_manifest="$temporary/original-driver.vrdrivermanifest"
 
 mkdir -p "$driver_root" "$steamvr_root/bin" "$steam_root/legacycompat" "$(dirname -- "$runner")"
 cp -a "$overlay/." "$driver_root/"
@@ -34,9 +35,19 @@ mkdir -p "$driver_root/saves"
 printf '{\n  "Show in SteamVR Dashboard": true\n}\n' >"$driver_root/saves/settings.json"
 touch "$driver_root/Standable.exe" \
     "$driver_root/openvr_api.dll" \
-    "$driver_root/driver.vrdrivermanifest" \
     "$driver_root/bin/win64/driver_standable.dll" \
     "$steam_root/legacycompat/steamclient64.dll"
+cat >"$driver_root/driver.vrdrivermanifest" <<'JSON'
+{
+  "alwaysActivate": false,
+  "name": "standable",
+  "directory": "bin/win64",
+  "resourceOnly": false,
+  "displayName": "Standable",
+  "iconPath": "resources/icons/standable.png"
+}
+JSON
+cp -a "$driver_root/driver.vrdrivermanifest" "$original_manifest"
 cp tests/fake-proton.sh "$runner"
 chmod 0755 "$runner"
 
@@ -114,6 +125,35 @@ cp install.sh "$installer_tree/install.sh"
 (cd -- "$installer_tree/dist" && sha256sum Standable-Linux-Bridge-Overlay.zip > SHA256SUMS)
 bash "$installer_tree/install.sh" --standable-root "$driver_root"
 
+"$driver_root/scripts/bridge-manager.sh" --self-test
+test -f "$driver_root/share/standable-linux-bridge/driver.vrdrivermanifest"
+python3 - "$driver_root/driver.vrdrivermanifest" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    manifest = json.load(handle)
+assert manifest["name"] == "standable"
+assert manifest["directory"] == ""
+assert manifest["alwaysActivate"] is True
+assert manifest["resourceOnly"] is False
+assert manifest["displayName"] == "Standable"
+assert manifest["iconPath"] == "resources/icons/standable.png"
+PY
+manifest_state="$(bash "$driver_root/scripts/manifest-manager.sh" state-dir "$driver_root")"
+cmp -s "$original_manifest" "$manifest_state/original-driver.vrdrivermanifest"
+test -f "$manifest_state/metadata.env"
+test -f "$manifest_state/installed-files.tsv"
+
+diagnostics="$temporary/diagnostics.txt"
+bash "$driver_root/scripts/diagnose.sh" >"$diagnostics" 2>&1
+grep -Fq '<standable-root>' "$diagnostics"
+if grep -Fq "$driver_root" "$diagnostics"; then
+    echo "privacy-redacted diagnostics exposed the Standable path" >&2
+    exit 1
+fi
+grep -Fq 'exact original SteamVR manifest backup is present' "$diagnostics"
+
 mkdir -p "$remote_installer_tree/bin"
 cp install.sh "$remote_installer_tree/install.sh"
 cp tests/fake-curl.sh "$remote_installer_tree/bin/curl"
@@ -142,9 +182,10 @@ bash "$driver_root/scripts/update.sh" \
     --overlay-dir "$overlay" \
     --no-register
 bash "$driver_root/scripts/uninstall.sh" >/dev/null
+cmp -s "$original_manifest" "$driver_root/driver.vrdrivermanifest"
 grep -q "args=<adddriver><$driver_root>" "$registry_log"
 grep -q "args=<removedriver><$driver_root>" "$registry_log"
 backup_count="$(find "$XDG_STATE_HOME/standable-linux-bridge/backups" -mindepth 1 -maxdepth 1 -type d | wc -l)"
 ((backup_count == 4))
 
-echo "PASS: Proton/OpenVR setup, dashboard enablement, source/installed updates, UI launch, bundled/repository install, and registration"
+echo "PASS: Proton/OpenVR setup, dashboard lifetime, managed manifest, graphical maintenance, redacted diagnostics, updates, rollback, and registration"
