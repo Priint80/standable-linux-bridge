@@ -24,11 +24,12 @@ TRANSPORT_TEST := $(TEST_DIR)/protocol_transport
 RELAY_TEST := $(TEST_DIR)/provider_relay_smoke
 OVERLAY_ZIP := $(BUILD_DIR)/Standable-Linux-Bridge-Overlay.zip
 SOURCE_ZIP := $(BUILD_DIR)/Standable-Linux-Bridge-Source-v$(VERSION).zip
+DASHBOARD_POLISH_HEADER := src/dashboard/dashboard_polish.hpp
 
 OPENVR_COMMIT := 0924064316de3effbcd1acf1e309182a2deb1c05
-OPENVR_HEADER_SHA256 := 1036efe998d63e82d1d3db2b32a2f58df4a8eeaf5280f50aaf28220ff60a40ab
+OPENVR_HEADER_BLOB := fcd675583622df0ea1a54d4f88c2b34c195c199b
 OPENVR_HEADER_URL := https://raw.githubusercontent.com/ValveSoftware/openvr/$(OPENVR_COMMIT)/headers/openvr_driver.h
-OPENVR_APP_HEADER_SHA256 := 21f21ff11f23cbbf51297e844c8111eb6eba952d4bc039a2a8f55e8f18597bde
+OPENVR_APP_HEADER_BLOB := 7b25ab4e2c0048db92458ef5f6dcf03929cb809d
 OPENVR_APP_HEADER_URL := https://raw.githubusercontent.com/ValveSoftware/openvr/$(OPENVR_COMMIT)/headers/openvr.h
 
 CPPFLAGS := -Iinclude -isystem $(OPENVR_INCLUDE_DIR) -DSTANDABLE_BRIDGE_VERSION=\"$(VERSION)\"
@@ -36,7 +37,7 @@ NATIVE_CXXFLAGS := -std=c++20 -O2 -g -fPIC -fvisibility=hidden -Wall -Wextra -Wp
 NATIVE_LDFLAGS := -shared -Wl,--version-script=packaging/driver.exports.map -Wl,-z,defs -Wl,-z,now -Wl,-z,relro -Wl,--no-undefined
 DASHBOARD_CXXFLAGS := -std=c++23 -O2 -g -fPIE -Wall -Wextra -Wpedantic -Wconversion -Wshadow
 DASHBOARD_LDFLAGS := -pie -Wl,-z,now -Wl,-z,relro
-WINDOWS_CXXFLAGS := -target x86_64-windows-gnu -std=c++20 -O2 -Wall -Wextra -Wpedantic
+WINDOWS_CXXFLAGS := -target x86_64-windows-gnu -std=c++20 -O2 -Wall -Wextra -Wpedantic -Wno-nullability-completeness
 WINDOWS_LDFLAGS := -target x86_64-windows-gnu -static -O2 -s
 
 NATIVE_SOURCES := \
@@ -63,12 +64,12 @@ windows: $(WINDOWS_HELPER) $(STEAM_API_BRIDGE)
 $(OPENVR_HEADER):
 	@mkdir -p $(OPENVR_INCLUDE_DIR)
 	curl --fail --location --silent --show-error --output $@ $(OPENVR_HEADER_URL)
-	@printf '%s  %s\n' '$(OPENVR_HEADER_SHA256)' '$@' | sha256sum --check --status || { rm -f '$@'; echo 'OpenVR header checksum mismatch' >&2; exit 1; }
+	@actual="$$(git hash-object '$@')"; [[ "$$actual" == '$(OPENVR_HEADER_BLOB)' ]] || { rm -f '$@'; echo "OpenVR driver header blob mismatch: expected $(OPENVR_HEADER_BLOB), got $$actual" >&2; exit 1; }
 
 $(OPENVR_APP_HEADER):
 	@mkdir -p $(OPENVR_INCLUDE_DIR)
 	curl --fail --location --silent --show-error --output $@ $(OPENVR_APP_HEADER_URL)
-	@printf '%s  %s\n' '$(OPENVR_APP_HEADER_SHA256)' '$@' | sha256sum --check --status || { rm -f '$@'; echo 'OpenVR application header checksum mismatch' >&2; exit 1; }
+	@actual="$$(git hash-object '$@')"; [[ "$$actual" == '$(OPENVR_APP_HEADER_BLOB)' ]] || { rm -f '$@'; echo "OpenVR application header blob mismatch: expected $(OPENVR_APP_HEADER_BLOB), got $$actual" >&2; exit 1; }
 
 $(NATIVE_OBJ_DIR)/%.o: src/native/%.cpp $(OPENVR_HEADER) include/bridge_protocol.hpp VERSION
 	@mkdir -p $(NATIVE_OBJ_DIR)
@@ -77,7 +78,8 @@ $(NATIVE_OBJ_DIR)/%.o: src/native/%.cpp $(OPENVR_HEADER) include/bridge_protocol
 $(NATIVE_SO): $(NATIVE_OBJECTS) packaging/driver.exports.map
 	$(CXX) $(NATIVE_LDFLAGS) $(NATIVE_OBJECTS) -ldl -o $@
 
-$(DASHBOARD_OBJECT): src/dashboard/dashboard_main.cpp $(OPENVR_APP_HEADER) VERSION
+$(DASHBOARD_OBJECT): CPPFLAGS += -include $(DASHBOARD_POLISH_HEADER)
+$(DASHBOARD_OBJECT): src/dashboard/dashboard_main.cpp $(DASHBOARD_POLISH_HEADER) $(OPENVR_APP_HEADER) VERSION
 	@mkdir -p $(DASHBOARD_OBJ_DIR)
 	$(CXX) $(CPPFLAGS) $(DASHBOARD_CXXFLAGS) -MMD -MP -c $< -o $@
 
@@ -115,11 +117,12 @@ test: overlay $(FACTORY_TEST) $(TRANSPORT_TEST) $(RELAY_TEST)
 	$(TRANSPORT_TEST)
 	$(RELAY_TEST) $(NATIVE_SO)
 	$(DASHBOARD_APP) --self-test
+	bash tests/manifest_manager.sh scripts/manifest-manager.sh packaging/driver.vrdrivermanifest
 	bash tests/script_runtime.sh '$(OVERLAY_ROOT)'
 
 overlay: $(NATIVE_SO) $(DASHBOARD_APP) $(WINDOWS_HELPER) $(STEAM_API_BRIDGE)
 	@rm -rf '$(OVERLAY_ROOT)'
-	@install -d '$(OVERLAY_ROOT)/bin/linux64' '$(OVERLAY_ROOT)/bin/win64' '$(OVERLAY_ROOT)/scripts'
+	@install -d '$(OVERLAY_ROOT)/bin/linux64' '$(OVERLAY_ROOT)/bin/win64' '$(OVERLAY_ROOT)/scripts' '$(OVERLAY_ROOT)/share/standable-linux-bridge'
 	@install -m 0755 '$(NATIVE_SO)' '$(OVERLAY_ROOT)/bin/linux64/driver_standable.so'
 	@strip --strip-unneeded '$(OVERLAY_ROOT)/bin/linux64/driver_standable.so'
 	@install -m 0755 '$(DASHBOARD_APP)' '$(OVERLAY_ROOT)/bin/linux64/standable_dashboard_overlay'
@@ -127,6 +130,7 @@ overlay: $(NATIVE_SO) $(DASHBOARD_APP) $(WINDOWS_HELPER) $(STEAM_API_BRIDGE)
 	@install -m 0755 '$(WINDOWS_HELPER)' '$(OVERLAY_ROOT)/bin/win64/standable_bridge_host.exe'
 	@install -m 0644 '$(STEAM_API_BRIDGE)' '$(OVERLAY_ROOT)/bin/win64/steam_api64.dll'
 	@install -m 0755 scripts/*.sh '$(OVERLAY_ROOT)/scripts/'
+	@install -m 0644 packaging/driver.vrdrivermanifest '$(OVERLAY_ROOT)/share/standable-linux-bridge/driver.vrdrivermanifest'
 	@install -m 0755 install.sh '$(OVERLAY_ROOT)/scripts/bridge-installer.sh'
 	@install -m 0644 README-LINUX.md '$(OVERLAY_ROOT)/README-LINUX.md'
 	@install -m 0644 THIRD_PARTY_NOTICES.md '$(OVERLAY_ROOT)/THIRD_PARTY_NOTICES.md'

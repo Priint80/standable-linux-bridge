@@ -93,16 +93,11 @@ void RelayTracker::DebugRequest(
     const char* request,
     char* response,
     std::uint32_t response_size) {
+    static_cast<void>(request);
     if (response == nullptr || response_size == 0) {
         return;
     }
-    std::snprintf(
-        response,
-        response_size,
-        "standable-linux bridge serial=%s remote=%u request=%s",
-        serial_.c_str(),
-        remote_device_index_,
-        request == nullptr ? "" : request);
+    std::snprintf(response, response_size, "%s", "Standable tracker ready");
     response[response_size - 1] = '\0';
 }
 
