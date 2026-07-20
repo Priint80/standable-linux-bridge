@@ -24,24 +24,26 @@ Close SteamVR, clone the repository, and open the maintenance window:
 ```bash
 git clone https://github.com/Priint80/standable-linux-bridge.git
 cd standable-linux-bridge
-./scripts/bridge-manager.sh
+bash ./scripts/bridge-manager.sh
 ```
+
+The manager automatically scans Steam's `libraryfolders.vdf`, App 2370570 manifests, normal Steam locations, removable-drive libraries under `/mnt`, `/media`, and `/run/media`, and previously recorded bridge installations. It distinguishes original-only, legacy bridge, and managed bridge installations. When more than one installation is found, use **Choose detected**.
 
 Select the original **Standable Full Body Estimation** folder and choose **Install**. When the manager is opened from a source checkout, Install builds and installs that exact checkout instead of silently selecting the older bundled release ZIP.
 
 CLI source installation:
 
 ```bash
-./scripts/source-install.sh
+bash ./scripts/source-install.sh
 ```
 
 If auto-detection does not find the app:
 
 ```bash
-./scripts/source-install.sh --standable-root "/path/to/Standable Full Body Estimation"
+bash ./scripts/source-install.sh --standable-root "/path/to/Standable Full Body Estimation"
 ```
 
-A packaged overlay does not need the compiler toolchain; extract it into the original Standable folder and run `./scripts/bridge-manager.sh` or `./scripts/install.sh` there.
+A packaged overlay does not need the compiler toolchain; extract it into the original Standable folder and run `./scripts/bridge-manager.sh` or `./scripts/install.sh` there. Packaged scripts are installed with executable permissions.
 
 The installer verifies the bridge distribution, copies only bridge-owned files, keeps the original Standable executable, Windows provider, settings, resources, and saved poses untouched, and registers the native driver with SteamVR.
 
@@ -53,7 +55,16 @@ The dashboard input path deliberately uses the original Standable UI rather than
 
 The original Windows **Show in SteamVR Dashboard** preference is disabled to avoid a second blank Proton dashboard entry.
 
-## Update, repair, and uninstall
+## Graphical maintenance
+
+The manager uses rounded panels, fields, cards, status banners, and animated buttons. It reports whether the selected folder contains:
+
+- the original Standable installation with no Linux bridge
+- a legacy bridge installation that should be migrated with Repair
+- a fully managed installation with an exact original-manifest backup
+- an outdated installation whose saved version or commit differs from the selected branch or current remote branch
+
+Exact commit tracking is used in addition to the semantic `VERSION`, so development builds with the same displayed version can still be identified as outdated.
 
 Run the graphical manager from the installed Standable folder:
 
@@ -71,10 +82,10 @@ It provides four actions:
 CLI equivalents:
 
 ```bash
-./scripts/source-install.sh
-./scripts/update.sh
-./scripts/repair.sh
-./scripts/uninstall.sh
+bash ./scripts/source-install.sh
+bash ./scripts/update.sh
+bash ./scripts/repair.sh
+bash ./scripts/uninstall.sh
 ```
 
 Every installation stores an exact original-manifest backup and per-file ownership record under:
