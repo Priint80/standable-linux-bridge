@@ -142,7 +142,19 @@ assert manifest["iconPath"] == "resources/icons/standable.png"
 PY
 manifest_state="$(bash "$driver_root/scripts/manifest-manager.sh" state-dir "$driver_root")"
 cmp -s "$original_manifest" "$manifest_state/original-driver.vrdrivermanifest"
-test -f "$manifest_state/metadata.env"
+test -f "$manifest_state/metadata.json"
+test ! -e "$manifest_state/metadata.env"
+python3 - "$manifest_state/metadata.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    metadata = json.load(handle)
+assert metadata["repository"] == "Priint80/standable-linux-bridge"
+assert metadata["branch"]
+assert isinstance(metadata["source_checkout"], str)
+assert isinstance(metadata["version"], str)
+PY
 test -f "$manifest_state/installed-files.tsv"
 
 diagnostics="$temporary/diagnostics.txt"
@@ -188,4 +200,4 @@ grep -q "args=<removedriver><$driver_root>" "$registry_log"
 backup_count="$(find "$XDG_STATE_HOME/standable-linux-bridge/backups" -mindepth 1 -maxdepth 1 -type d | wc -l)"
 ((backup_count == 4))
 
-echo "PASS: Proton/OpenVR setup, dashboard lifetime, managed manifest, graphical maintenance, redacted diagnostics, updates, rollback, and registration"
+echo "PASS: Proton/OpenVR setup, dashboard lifetime, managed manifest, graphical maintenance, safe provenance, redacted diagnostics, updates, rollback, and registration"
