@@ -24,6 +24,22 @@ for path in "${required[@]}"; do
     }
 done
 
+# Older installer engines copy every bridge script but do not know about the
+# new share directory. Generate the same canonical template locally so all
+# install paths converge on the managed-manifest layout.
+if [[ ! -f "$manifest_template" ]]; then
+    install -d -m 0755 "$(dirname -- "$manifest_template")"
+    cat >"$manifest_template" <<'JSON'
+{
+  "alwaysActivate": true,
+  "name": "standable",
+  "directory": "",
+  "resourceOnly": false
+}
+JSON
+    chmod 0644 "$manifest_template"
+fi
+
 chmod 0755 "$driver_root/bin/linux64/driver_standable.so" \
     "$driver_root/bin/linux64/standable_dashboard_overlay" \
     "$driver_root/bin/win64/standable_bridge_host.exe" \
