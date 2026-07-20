@@ -25,21 +25,31 @@ jobs:
           ref: agent/polish-dashboard-installer
           fetch-depth: 0
 
-      - name: Apply asserted source patch
-        run: python3 tools/apply_agent_polish.py
-
-      - name: Validate scripts and graphical manager
+      - name: Apply and validate asserted patch
+        shell: bash
         run: |
-          bash -n install.sh
-          for script in scripts/*.sh; do bash -n "$script"; done
-          PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile scripts/bridge-manager.py
-          PYTHONDONTWRITEBYTECODE=1 python3 scripts/bridge-manager.py --self-test
-
-      - name: Build native targets
-        run: make native
-
-      - name: Run dashboard self-test
-        run: build/dashboard/standable_dashboard_overlay --self-test
+          set +e
+          (
+            set -e
+            python3 tools/apply_agent_polish.py
+            bash -n install.sh
+            for script in scripts/*.sh; do bash -n "$script"; done
+            PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile scripts/bridge-manager.py
+            PYTHONDONTWRITEBYTECODE=1 python3 scripts/bridge-manager.py --self-test
+            make native
+            build/dashboard/standable_dashboard_overlay --self-test
+          ) 2>&1 | tee agent-polish-validation.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if ((status != 0)); then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add agent-polish-validation.log
+            git commit -m "Record polish validation failure" || true
+            git push origin HEAD:agent/polish-dashboard-installer
+            exit "$status"
+          fi
+          rm -f agent-polish-validation.log
 
       - name: Commit validated patch
         run: |
