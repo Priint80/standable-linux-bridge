@@ -28,9 +28,9 @@ DASHBOARD_POLISH_HEADER := src/dashboard/dashboard_polish.hpp
 RELAY_POLISH_HEADER := src/native/relay_polish.hpp
 
 OPENVR_COMMIT := 0924064316de3effbcd1acf1e309182a2deb1c05
-OPENVR_HEADER_SHA256 := 1036efe998d63e82d1d3db2b32a2f58df4a8eeaf5280f50aaf28220ff60a40ab
+OPENVR_HEADER_BLOB := fcd675583622df0ea1a54d4f88c2b34c195c199b
 OPENVR_HEADER_URL := https://raw.githubusercontent.com/ValveSoftware/openvr/$(OPENVR_COMMIT)/headers/openvr_driver.h
-OPENVR_APP_HEADER_SHA256 := 21f21ff11f23cbbf51297e844c8111eb6eba952d4bc039a2a8f55e8f18597bde
+OPENVR_APP_HEADER_BLOB := 7b25ab4e2c0048db92458ef5f6dcf03929cb809d
 OPENVR_APP_HEADER_URL := https://raw.githubusercontent.com/ValveSoftware/openvr/$(OPENVR_COMMIT)/headers/openvr.h
 
 CPPFLAGS := -Iinclude -isystem $(OPENVR_INCLUDE_DIR) -DSTANDABLE_BRIDGE_VERSION=\"$(VERSION)\"
@@ -65,12 +65,12 @@ windows: $(WINDOWS_HELPER) $(STEAM_API_BRIDGE)
 $(OPENVR_HEADER):
 	@mkdir -p $(OPENVR_INCLUDE_DIR)
 	curl --fail --location --silent --show-error --output $@ $(OPENVR_HEADER_URL)
-	@printf '%s  %s\n' '$(OPENVR_HEADER_SHA256)' '$@' | sha256sum --check --status || { rm -f '$@'; echo 'OpenVR header checksum mismatch' >&2; exit 1; }
+	@actual="$$(git hash-object '$@')"; [[ "$$actual" == '$(OPENVR_HEADER_BLOB)' ]] || { rm -f '$@'; echo "OpenVR driver header blob mismatch: expected $(OPENVR_HEADER_BLOB), got $$actual" >&2; exit 1; }
 
 $(OPENVR_APP_HEADER):
 	@mkdir -p $(OPENVR_INCLUDE_DIR)
 	curl --fail --location --silent --show-error --output $@ $(OPENVR_APP_HEADER_URL)
-	@printf '%s  %s\n' '$(OPENVR_APP_HEADER_SHA256)' '$@' | sha256sum --check --status || { rm -f '$@'; echo 'OpenVR application header checksum mismatch' >&2; exit 1; }
+	@actual="$$(git hash-object '$@')"; [[ "$$actual" == '$(OPENVR_APP_HEADER_BLOB)' ]] || { rm -f '$@'; echo "OpenVR application header blob mismatch: expected $(OPENVR_APP_HEADER_BLOB), got $$actual" >&2; exit 1; }
 
 $(NATIVE_OBJ_DIR)/relay_tracker.o: CPPFLAGS += -include $(RELAY_POLISH_HEADER)
 $(NATIVE_OBJ_DIR)/relay_tracker.o: $(RELAY_POLISH_HEADER)
