@@ -29,18 +29,39 @@ EOF
     esac
 done
 
-command -v make >/dev/null 2>&1 || {
-    echo "A source installation requires GNU make." >&2
-    exit 3
-}
-[[ -x "$source_root/install.sh" && -f "$source_root/Makefile" ]] || {
+[[ -f "$source_root/install.sh" && -f "$source_root/Makefile" ]] || {
     echo "This script must be run from a Standable Linux Bridge source checkout." >&2
     exit 3
 }
 
+# Fail before starting a partial build and give the graphical manager a short,
+# useful message instead of exposing a late '/bin/bash: zig: command not found'.
+required_commands=(make g++ zig curl git strip install python3 sha256sum)
+declare -a missing_commands=()
+for command_name in "${required_commands[@]}"; do
+    command -v "$command_name" >/dev/null 2>&1 || missing_commands+=("$command_name")
+done
+if ((${#missing_commands[@]})); then
+    printf 'Missing source-build dependencies: %s\n' "${missing_commands[*]}" >&2
+    if command -v pacman >/dev/null 2>&1; then
+        cat >&2 <<'EOF'
+Install the required Arch/CachyOS packages with:
+  sudo pacman -S --needed base-devel zig curl git python
+Then run Install, Update, or Repair again.
+EOF
+    elif command -v apt-get >/dev/null 2>&1; then
+        cat >&2 <<'EOF'
+Install the required compiler tools, Zig, curl, Git, and Python 3 with your package manager, then retry.
+EOF
+    else
+        echo "Install the missing commands with your distribution's package manager, then retry." >&2
+    fi
+    exit 3
+fi
+
 branch="${STANDABLE_BRIDGE_BRANCH:-}"
 commit="${STANDABLE_BRIDGE_COMMIT:-}"
-if command -v git >/dev/null 2>&1 && [[ -d "$source_root/.git" ]]; then
+if [[ -d "$source_root/.git" ]]; then
     [[ -n "$branch" ]] || branch="$(git -C "$source_root" branch --show-current 2>/dev/null || true)"
     [[ -n "$commit" ]] || commit="$(git -C "$source_root" rev-parse HEAD 2>/dev/null || true)"
 fi
@@ -59,4 +80,4 @@ overlay="$source_root/build/overlay"
 arguments=(--overlay-dir "$overlay")
 [[ -n "$standable_root" ]] && arguments+=(--standable-root "$standable_root")
 arguments+=("${passthrough[@]}")
-exec "$source_root/install.sh" "${arguments[@]}"
+exec bash "$source_root/install.sh" "${arguments[@]}"
