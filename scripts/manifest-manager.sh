@@ -125,12 +125,10 @@ with open(output_path, "w", encoding="utf-8", newline="\n") as handle:
     handle.write("\n")
 PY
         chmod 0644 "$temporary"
-        atomic_copy "$temporary" "$manifest" 0644
-        rm -f -- "$temporary"
-        trap - EXIT
 
-        driver_name="$(read_driver_name "$manifest")"
+        driver_name="$(read_driver_name "$temporary")"
         expected_binary="$driver_root/bin/linux64/driver_${driver_name}.so"
+        alias_needed=0
         if [[ "$expected_binary" != "$standard_binary" ]]; then
             if [[ -e "$expected_binary" || -L "$expected_binary" ]]; then
                 expected_target="$(readlink -f -- "$expected_binary" 2>/dev/null || true)"
@@ -141,10 +139,22 @@ PY
                     exit 5
                 fi
             else
-                ln -s "$(basename -- "$standard_binary")" "$expected_binary"
-                printf '%s\n' "$expected_binary" >"$generated_binary"
+                alias_needed=1
             fi
         fi
+
+        atomic_copy "$temporary" "$manifest" 0644
+        if ((alias_needed)); then
+            if ! ln -s "$(basename -- "$standard_binary")" "$expected_binary"; then
+                atomic_copy "$original_manifest" "$manifest" 0644
+                echo "Could not create the native driver alias; the original manifest was restored" >&2
+                exit 5
+            fi
+            printf '%s\n' "$expected_binary" >"$generated_binary"
+        fi
+        rm -f -- "$temporary"
+        trap - EXIT
+
         sha256sum "$manifest" | awk '{print $1}' >"$managed_hash"
         printf '%s\n' "$driver_name"
         ;;
