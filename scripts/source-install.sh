@@ -39,11 +39,14 @@ command -v make >/dev/null 2>&1 || {
 }
 
 branch="${STANDABLE_BRIDGE_BRANCH:-}"
-if [[ -z "$branch" ]] && command -v git >/dev/null 2>&1 && [[ -d "$source_root/.git" ]]; then
-    branch="$(git -C "$source_root" branch --show-current 2>/dev/null || true)"
+commit="${STANDABLE_BRIDGE_COMMIT:-}"
+if command -v git >/dev/null 2>&1 && [[ -d "$source_root/.git" ]]; then
+    [[ -n "$branch" ]] || branch="$(git -C "$source_root" branch --show-current 2>/dev/null || true)"
+    [[ -n "$commit" ]] || commit="$(git -C "$source_root" rev-parse HEAD 2>/dev/null || true)"
 fi
 export STANDABLE_BRIDGE_SOURCE_CHECKOUT="$source_root"
 [[ -n "$branch" ]] && export STANDABLE_BRIDGE_BRANCH="$branch"
+[[ -n "$commit" ]] && export STANDABLE_BRIDGE_COMMIT="$commit"
 
 echo "Building the current bridge checkout"
 make -C "$source_root" overlay
