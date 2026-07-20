@@ -57,24 +57,39 @@ driver_root="$(cd -- "$driver_root" && pwd -P)"
 script_dir="$driver_root/scripts"
 manifest_manager="$script_dir/manifest-manager.sh"
 
+metadata_value() {
+    local file="$1" key="$2"
+    python3 - "$file" "$key" <<'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as handle:
+        document = json.load(handle)
+except (OSError, json.JSONDecodeError):
+    raise SystemExit(0)
+value = document.get(sys.argv[2], "") if isinstance(document, dict) else ""
+if isinstance(value, str):
+    print(value, end="")
+PY
+}
+
 state_dir=""
 if [[ -x "$manifest_manager" ]]; then
     state_dir="$(bash "$manifest_manager" state-dir "$driver_root")"
-    metadata="$state_dir/metadata.env"
+    metadata="$state_dir/metadata.json"
     if [[ -f "$metadata" ]]; then
-        # Written by scripts/install.sh with shell-escaped values only. Clear
-        # inherited uppercase values so the file is read as a snapshot rather
-        # than accidentally inheriting this process's environment.
-        unset STANDABLE_BRIDGE_REPO STANDABLE_BRIDGE_BRANCH STANDABLE_BRIDGE_SOURCE_CHECKOUT
-        source "$metadata"
-        if ((repo_explicit == 0)); then
-            repo="${STANDABLE_BRIDGE_REPO:-$repo}"
+        saved_repo="$(metadata_value "$metadata" repository)"
+        saved_branch="$(metadata_value "$metadata" branch)"
+        saved_checkout="$(metadata_value "$metadata" source_checkout)"
+        if ((repo_explicit == 0)) && [[ -n "$saved_repo" ]]; then
+            repo="$saved_repo"
         fi
-        if ((branch_explicit == 0)); then
-            branch="${STANDABLE_BRIDGE_BRANCH:-$branch}"
+        if ((branch_explicit == 0)) && [[ -n "$saved_branch" ]]; then
+            branch="$saved_branch"
         fi
         if ((source_explicit == 0)); then
-            source_checkout="${STANDABLE_BRIDGE_SOURCE_CHECKOUT:-$source_checkout}"
+            source_checkout="$saved_checkout"
         fi
     fi
 fi
