@@ -56,9 +56,7 @@ done
 driver_root="$(cd -- "$driver_root" && pwd -P)"
 driver_scripts="$driver_root/scripts"
 manifest_manager="$driver_scripts/manifest-manager.sh"
-[[ -x "$manifest_manager" ]] || manifest_manager="$repair_script_dir/manifest-manager.sh"
-uninstall_script="$driver_scripts/uninstall.sh"
-[[ -x "$uninstall_script" ]] || uninstall_script="$repair_script_dir/uninstall.sh"
+[[ -f "$manifest_manager" ]] || manifest_manager="$repair_script_dir/manifest-manager.sh"
 
 metadata_value() {
     local file="$1" key="$2"
@@ -78,7 +76,7 @@ PY
 }
 
 state_dir=""
-if [[ -x "$manifest_manager" ]]; then
+if [[ -f "$manifest_manager" ]]; then
     state_dir="$(bash "$manifest_manager" state-dir "$driver_root")"
     metadata="$state_dir/metadata.json"
     if [[ -f "$metadata" ]]; then
@@ -125,16 +123,9 @@ EOF
     exit 3
 fi
 
-[[ -f "$uninstall_script" ]] || {
-    echo "No compatible uninstall script is available for repair." >&2
-    exit 4
-}
-
 temporary="$(mktemp -d "${TMPDIR:-/tmp}/standable-bridge-repair.XXXXXX")"
 cleanup() { rm -rf -- "$temporary"; }
 trap cleanup EXIT
-cp -a -- "$uninstall_script" "$temporary/uninstall.sh"
-chmod 0755 "$temporary/uninstall.sh"
 
 persistent_checkout=0
 if [[ -n "$source_checkout" && -d "$source_checkout/.git" ]]; then
@@ -170,12 +161,34 @@ commit="$(git -C "$source_checkout" rev-parse HEAD 2>/dev/null || true)"
 echo "Building a fresh bridge overlay"
 make -C "$source_checkout" overlay
 overlay="$source_checkout/build/overlay"
-[[ -f "$overlay/VERSION" && -x "$overlay/scripts/install.sh" ]] || {
+[[ -f "$overlay/VERSION" && -f "$overlay/scripts/install.sh" ]] || {
     echo "Fresh overlay build is incomplete" >&2
     exit 5
 }
 
-bash "$temporary/uninstall.sh" --standable-root "$driver_root" --keep-state
+# Never execute the old installed uninstall script during migration. It may be
+# incomplete and may assume its helpers live beside a path that Repair moved to
+# /tmp. Build a complete, fresh, relocatable maintenance bundle from the overlay.
+maintenance_bundle="$temporary/maintenance"
+install -d -m 0755 "$maintenance_bundle"
+for helper in uninstall.sh find-steamvr.sh manifest-manager.sh; do
+    [[ -f "$overlay/scripts/$helper" ]] || {
+        echo "Fresh overlay is missing maintenance helper: scripts/$helper" >&2
+        exit 5
+    }
+    install -m 0755 "$overlay/scripts/$helper" "$maintenance_bundle/$helper"
+done
+
+# A legacy install may not have a managed original-manifest record yet. Keep an
+# exact emergency snapshot of the manifest currently present; the fresh
+# uninstaller will preserve or restore a better managed original when one exists.
+manifest_snapshot="$temporary/pre-repair-driver.vrdrivermanifest"
+[[ -f "$driver_root/driver.vrdrivermanifest" ]] && cp -a -- "$driver_root/driver.vrdrivermanifest" "$manifest_snapshot"
+
+bash "$maintenance_bundle/uninstall.sh" --standable-root "$driver_root" --keep-state
+if [[ ! -f "$driver_root/driver.vrdrivermanifest" && -f "$manifest_snapshot" ]]; then
+    cp -a -- "$manifest_snapshot" "$driver_root/driver.vrdrivermanifest"
+fi
 
 export STANDABLE_BRIDGE_REPO="$repo"
 export STANDABLE_BRIDGE_BRANCH="$branch"
